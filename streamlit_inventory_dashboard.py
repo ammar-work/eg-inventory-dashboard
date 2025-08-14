@@ -38,7 +38,7 @@ OD_ORDER = [
     '2"', '2-1/2"', '3"', '3-1/2"', '4"', '5"', '6"', '8"', '10"', '12"',
     '14"', '16"', '18"', '20"', '22"', '24"', '26"', '28"', '30"', '32"',
     '34"', '36"', '38"', '40"', '42"', '44"', '46"', '48"', '52"', '56"',
-    '60"', '64"', '68"', '72"', '76"', '80"', 'Non STD', 'Unknown OD'
+    '60"', '64"', '68"', '72"', '76"', '80"', 'Non Standard OD', 'Non STD', 'Unknown OD'
 ]
 
 st.set_page_config(page_title="Inventory Heatmap Dashboard", layout="wide")
@@ -1358,6 +1358,37 @@ if data_file is not None:
             # Reorder the dataframe to show only the specified columns in the specified order
             if available_columns:
                 df_filtered_display = df_filtered_display[available_columns]
+
+                # Format the Delivery_as_on_Date column to be more readable
+                if 'Delivery_as_on_Date' in df_filtered_display.columns:
+                    def format_date(date_value):
+                        """Format date to '30th May, 2025' format"""
+                        if pd.isna(date_value):
+                            return ""
+                        try:
+                            # Convert to datetime if it's not already
+                            if isinstance(date_value, str):
+                                date_obj = pd.to_datetime(date_value)
+                            else:
+                                date_obj = pd.to_datetime(date_value)
+                            
+                            # Format to '30th May, 2025' format
+                            day = date_obj.day
+                            month = date_obj.strftime('%B')  # Full month name
+                            year = date_obj.year
+                            
+                            # Add ordinal suffix to day (1st, 2nd, 3rd, 4th, etc.)
+                            if 10 <= day % 100 <= 20:
+                                suffix = 'th'
+                            else:
+                                suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+                            
+                            return f"{day}{suffix} {month}, {year}"
+                        except:
+                            return str(date_value)  # Return original if formatting fails
+                    
+                    # Apply the formatting to the Delivery_as_on_Date column
+                    df_filtered_display['Delivery_as_on_Date'] = df_filtered_display['Delivery_as_on_Date'].apply(format_date)
         else:
             st.write(f"Filtered rows: {len(df_filtered)}")
             df_filtered_display = df_filtered.reset_index(drop=True)
