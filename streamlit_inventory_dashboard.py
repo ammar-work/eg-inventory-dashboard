@@ -1349,7 +1349,7 @@ if data_file is not None:
             # Define the columns to show for Incoming data in the specified order
             incoming_columns = [
                 'SUPPLIER', 'PO_NO', 'DATE', 'OD', 'WT', 'OD_Category', 'WT_Schedule', 
-                'Specification', 'Grade', 'Add_Spec', 'Delivery_as_on_Date', 'NO_OF_DAYS_DELAY', 'CUSTOMER'
+                'Specification', 'Grade', 'Add_Spec', 'MT', 'Delivery_as_on_Date', 'NO_OF_DAYS_DELAY', 'CUSTOMER'
             ]
             
             # Filter to only show columns that exist in the data
