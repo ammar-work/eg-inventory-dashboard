@@ -1401,7 +1401,7 @@ if data_file is not None:
         df_filtered_display.index = df_filtered_display.index + 1
         df_filtered_display.index.name = 'Row #'
         
-        # Reorder columns to show Grade next to Specification
+        # Reorder columns to show Grade next to Specification and OD/WT categories next to OD/WT
         if 'Specification' in df_filtered_display.columns:
             # Get all columns
             all_cols = df_filtered_display.columns.tolist()
@@ -1426,7 +1426,54 @@ if data_file is not None:
                 
                 # Reorder the dataframe
                 df_filtered_display = df_filtered_display[new_cols]
+                
+        # Reorder OD and WT category columns to be next to OD and WT
+        all_cols = df_filtered_display.columns.tolist()
         
+        # Find OD and WT positions
+        od_idx = None
+        wt_idx = None
+        od_cat_idx = None
+        wt_schedule_idx = None
+        
+        for i, col in enumerate(all_cols):
+            if col == 'OD':
+                od_idx = i
+            elif col == 'WT':
+                wt_idx = i
+            elif col == 'OD_Category':
+                od_cat_idx = i
+            elif col == 'WT_Schedule':
+                wt_schedule_idx = i
+        
+        # Reorder to get: OD, WT, OD_Category, WT_Schedule after Grade
+        if od_idx is not None and wt_idx is not None and od_cat_idx is not None and wt_schedule_idx is not None:
+            # Find Grade position
+            grade_idx = None
+            for i, col in enumerate(all_cols):
+                if col == 'Grade':
+                    grade_idx = i
+                    break
+            
+            if grade_idx is not None:
+                # Create new order: put OD, WT, OD_Category, WT_Schedule right after Grade
+                new_cols = []
+                
+                for i, col in enumerate(all_cols):
+                    if i == grade_idx:
+                        new_cols.append(col)  # Add Grade
+                        # Add the four columns right after Grade
+                        new_cols.append('OD')
+                        new_cols.append('WT')
+                        new_cols.append('OD_Category')
+                        new_cols.append('WT_Schedule')
+                    elif col not in ['OD', 'WT', 'OD_Category', 'WT_Schedule']:
+                        # Add all other columns (excluding the four we already added)
+                        new_cols.append(col)
+                
+                # Update the dataframe
+                df_filtered_display = df_filtered_display[new_cols]
+
         # Note: Free For Sale now includes all columns including Make and Specification
         
         st.dataframe(df_filtered_display)
