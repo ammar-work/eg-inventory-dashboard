@@ -3,3 +3,5 @@ pandas
 numpy
 plotly
 openpyxl
+boto3
+python-dotenv

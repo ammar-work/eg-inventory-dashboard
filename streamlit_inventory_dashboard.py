@@ -2,6 +2,118 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import boto3
+import io
+import os
+from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()  # this loads variables from .env into os.environ
+
+# --- Token Authentication ---
+# Check for authentication token
+params = st.query_params
+auth_token = params.get('auth_token', None)
+
+# Verify token
+if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
+    # Set page config for unauthorized access
+    st.set_page_config(page_title="Access Denied", layout="centered")
+    
+    # Show unauthorized access message (clean, no logging visible to user)
+    st.markdown("""
+    <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
+        <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
+        <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
+        <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Stop execution
+    st.stop()
+
+# --- AWS S3 Configuration ---
+# These should be set as environment variables for security
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
+
+# --- S3 Functions ---
+def get_s3_client():
+    """Get S3 client with error handling"""
+    try:
+        if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY or not S3_BUCKET_NAME:
+            st.error("⚠️ AWS credentials not configured. Please set environment variables.")
+            return None
+        
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            region_name=AWS_REGION
+        )
+        return s3_client
+    except Exception as e:
+        st.error(f"Failed to initialize S3 client: {e}")
+        return None
+
+def get_latest_file_from_s3():
+    """Get the most recently uploaded .xlsx file from S3"""
+    s3_client = get_s3_client()
+    if not s3_client:
+        return None, None, "S3 client not available"
+    
+    try:
+        # List all .xlsx files in the bucket
+        response = s3_client.list_objects_v2(
+            Bucket=S3_BUCKET_NAME,
+            Prefix=''  # Will be updated when we know the folder structure
+        )
+        
+        if 'Contents' not in response:
+            return None, None, "No files found in S3 bucket"
+        
+        # Filter for .xlsx files and find the latest one
+        xlsx_files = [
+            obj for obj in response['Contents'] 
+            if obj['Key'].lower().endswith('.xlsx')
+        ]
+        
+        if not xlsx_files:
+            return None, None, "No .xlsx files found in S3 bucket"
+        
+        # Get the most recent file
+        latest_file = max(xlsx_files, key=lambda x: x['LastModified'])
+        
+        # Download the file
+        file_response = s3_client.get_object(
+            Bucket=S3_BUCKET_NAME, 
+            Key=latest_file['Key']
+        )
+        
+        file_data = io.BytesIO(file_response['Body'].read())
+        file_data.name = latest_file['Key']  # Set filename for pandas
+        
+        return file_data, latest_file['LastModified'], None
+        
+    except Exception as e:
+        return None, None, f"Failed to retrieve file from S3: {e}"
+
+def validate_file_structure(file_data):
+    """Validate that the Excel file has required sheets"""
+    try:
+        xls = pd.ExcelFile(file_data)
+        required_sheets = ["Stock", "Incoming", "Reservations"]
+        missing_sheets = [sheet for sheet in required_sheets if sheet not in xls.sheet_names]
+        
+        if missing_sheets:
+            return False, f"Invalid file format: Missing required sheets ({', '.join(missing_sheets)})"
+        return True, "File structure is valid"
+    except Exception as e:
+        return False, f"Invalid file format: {e}"
+
+
 
 # --- Load Specification to Grade Type Mapping ---
 def load_specification_mapping():
@@ -45,15 +157,38 @@ st.set_page_config(page_title="Inventory Heatmap Dashboard", layout="wide")
 
 # Main header removed to save space and bring heatmap higher up
 
+# --- S3 Data Loading ---
+data_file = None
+upload_date = None
+error_message = None
+
+# Try to get latest file from S3
+file_data, upload_date, error = get_latest_file_from_s3()
+
+if file_data and upload_date:
+    # Validate file structure
+    is_valid, validation_message = validate_file_structure(file_data)
+    if is_valid:
+        data_file = file_data
+    else:
+        error_message = validation_message
+else:
+    error_message = error
+
 # --- Sidebar ---
 st.sidebar.header("Controls")
 
-# File upload
-data_file = st.sidebar.file_uploader(
-    "Upload Excel File (.xlsx)",
-    type=["xlsx"],
-    help="Upload the inventory Excel file (with Stock, Incoming, Reservations sheets)"
-)
+# Show S3 status and refresh button
+if data_file:
+    st.sidebar.success("✅ Connected to S3 - Latest data loaded")
+    if st.sidebar.button("🔄 Refresh Data", help="Refresh data from S3"):
+        st.rerun()
+else:
+    st.sidebar.error("❌ S3 Connection Issue")
+    if error_message:
+        st.sidebar.error(f"Error: {error_message}")
+    if st.sidebar.button("🔄 Retry Connection", help="Retry S3 connection"):
+        st.rerun()
 
 # --- OD Categorization Functions ---
 def categorize_OD_CS_AS(od):
@@ -1481,4 +1616,7 @@ if data_file is not None:
     else:
         st.warning(f"No data found in the '{size_chart_type}' sheet.")
 else:
-    st.info("Please upload an Excel file to begin.")    
+    if error_message:
+        st.error(f"❌ {error_message}")
+    else:
+        st.info("📊 No inventory data available as no file was found.")    
