@@ -20,6 +20,19 @@ if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
     # Set page config for unauthorized access
     st.set_page_config(page_title="Access Denied", layout="centered")
     
+    # Hide Streamlit branding on access denied page
+    st.markdown("""
+    <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .stDeployButton {display: none;}
+        .stApp > header {background-color: transparent;}
+        .stApp > footer {background-color: transparent;}
+        .stApp > .main > .block-container {padding-top: 1rem;}
+    </style>
+    """, unsafe_allow_html=True)
+    
     # Show unauthorized access message (clean, no logging visible to user)
     st.markdown("""
     <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
@@ -153,7 +166,26 @@ OD_ORDER = [
     '60"', '64"', '68"', '72"', '76"', '80"', 'Non Standard OD', 'Non STD', 'Unknown OD'
 ]
 
-st.set_page_config(page_title="Inventory Heatmap Dashboard", layout="wide")
+st.set_page_config(
+    page_title="Inventory Heatmap Dashboard", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Hide Streamlit branding and elements
+st.markdown("""
+<style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stDeployButton {display: none;}
+    .stApp > header {background-color: transparent;}
+    .stApp > footer {background-color: transparent;}
+    .stApp > .main > .block-container {padding-top: 0 !important;}
+    .stApp > .main > .block-container > div:first-child {margin-top: 0 !important;}
+    .stApp > .main > .block-container > div:first-child > div:first-child {margin-top: 0 !important;}
+</style>
+""", unsafe_allow_html=True)
 
 # Main header removed to save space and bring heatmap higher up
 
@@ -876,43 +908,11 @@ metric = "MT"
 # --- Main Area ---
 if data_file is not None:
     
-    # Create tab-style sections for different chart types
-    st.markdown("<div style='margin: 20px 0 10px 0;'>", unsafe_allow_html=True)
-    
-    # Create custom CSS for tab styling
-    st.markdown("""
-    <style>
-    .chart-tab {
-        display: inline-block;
-        padding: 10px 20px;
-        margin-right: 10px;
-        cursor: pointer;
-        border-radius: 5px 5px 0 0;
-        font-weight: 500;
-        transition: all 0.3s ease;
-    }
-    .chart-tab.active {
-        background-color: #00FF00;
-        color: #000000;
-        border-bottom: 3px solid #00FF00;
-    }
-    .chart-tab.inactive {
-        background-color: transparent;
-        color: #FFFFFF;
-        border-bottom: 3px solid #666666;
-    }
-    .chart-tab:hover {
-        background-color: #00CC00;
-        color: #000000;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
     # Initialize session state for chart type if not exists
     if 'chart_type' not in st.session_state:
         st.session_state.chart_type = "Stock"
     
-    # Create tab buttons using columns
+    # Create tab buttons using columns (moved to top, no extra spacing)
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -935,10 +935,8 @@ if data_file is not None:
     # Use the session state to determine which tab is active
     size_chart_type = st.session_state.chart_type
     
-    st.markdown("</div>", unsafe_allow_html=True)
-    
     # Add a separator line below the tabs
-    st.markdown("<hr style='margin: 0 0 20px 0; border: 1px solid #666666;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 5px 0 15px 0; border: 1px solid #666666;'>", unsafe_allow_html=True)
     
     # Handle different data sources
     if size_chart_type == "Reserved":
