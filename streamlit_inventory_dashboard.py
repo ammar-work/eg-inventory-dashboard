@@ -12,38 +12,38 @@ load_dotenv()  # this loads variables from .env into os.environ
 
 # --- Token Authentication ---
 # Check for authentication token
-params = st.query_params
-auth_token = params.get('auth_token', None)
+# params = st.query_params
+# auth_token = params.get('auth_token', None)
 
-# Verify token
-if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
-    # Set page config for unauthorized access
-    st.set_page_config(page_title="Access Denied", layout="centered")
+# # Verify token
+# if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
+#     # Set page config for unauthorized access
+#     st.set_page_config(page_title="Access Denied", layout="centered")
     
-    # Hide Streamlit branding on access denied page
-    st.markdown("""
-    <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        .stDeployButton {display: none;}
-        .stApp > header {background-color: transparent;}
-        .stApp > footer {background-color: transparent;}
-        .stApp > .main > .block-container {padding-top: 1rem;}
-    </style>
-    """, unsafe_allow_html=True)
+#     # Hide Streamlit branding on access denied page
+#     st.markdown("""
+#     <style>
+#         #MainMenu {visibility: hidden;}
+#         footer {visibility: hidden;}
+#         header {visibility: hidden;}
+#         .stDeployButton {display: none;}
+#         .stApp > header {background-color: transparent;}
+#         .stApp > footer {background-color: transparent;}
+#         .stApp > .main > .block-container {padding-top: 1rem;}
+#     </style>
+#     """, unsafe_allow_html=True)
     
-    # Show unauthorized access message (clean, no logging visible to user)
-    st.markdown("""
-    <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
-        <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
-        <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
-        <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
-    </div>
-    """, unsafe_allow_html=True)
+#     # Show unauthorized access message (clean, no logging visible to user)
+#     st.markdown("""
+#     <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
+#         <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
+#         <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
+#         <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
+#     </div>
+#     """, unsafe_allow_html=True)
     
-    # Stop execution
-    st.stop()
+#     # Stop execution
+#     st.stop()
 
 # --- AWS S3 Configuration ---
 # These should be set as environment variables for security
@@ -1344,9 +1344,22 @@ if data_file is not None:
         if metric_col and not df_filtered.empty:
             # Select correct WT_Schedule list based on derived grade types from specifications
             if not spec_filter or "All" in spec_filter:
-                # When "All" is selected, use all wall thickness schedules combined
-                wt_schedule = list(set(CS_AS_WT + SS_WT + IS_WT + TUBES_WT))
-                wt_schedule.sort()  # Sort for consistent ordering
+                # When "All" is selected, use preferred order: CS & AS → SS → IS → Tubes
+                preferred_order_all = [
+                    # CS & AS order
+                    "SCH 10", "SCH 20", "SCH 30", "STD", "SCH 40", "SCH 60", "XS", "SCH 80", 
+                    "SCH 100", "SCH 120", "SCH 140", "SCH 160", "SCH XXS", "Non STD",
+                    # SS order
+                    "Schedule 5S", "Schedule 10S", "Schedule 40S", "Schedule 80S", "Schedule 160S", "XXS",
+                    # IS order
+                    "IS 1239: Light (A-Class)", "IS 1239: Medium (B-Class)", "IS 1239: Heavy (C-Class)",
+                    '7" NB', '8" NB', '10" NB', '12" NB', '14" NB', '16" NB', '18" NB', '20" NB', "Non IS Standard",
+                    # Tubes order
+                    "Small Wall Tube", "Medium Wall Tube", "Heavy Wall Tube", "Non-Standard Tube"
+                ]
+                # Filter to only include schedules that exist in the data
+                all_available_schedules = list(set(CS_AS_WT + SS_WT + IS_WT + TUBES_WT))
+                wt_schedule = [schedule for schedule in preferred_order_all if schedule in all_available_schedules]
             else:
                 # Derive grade types from selected specifications
                 grade_types = set()
@@ -1355,20 +1368,39 @@ if data_file is not None:
                         grade_type = derive_grade_type_from_spec(spec)
                         grade_types.add(grade_type)
                 
-                # Combine wall thickness schedules for all detected grade types
+                # Combine wall thickness schedules for all detected grade types in preferred order
                 wt_schedule = []
+                
+                # Define preferred order for each grade type
+                cs_as_order = ["SCH 10", "SCH 20", "SCH 30", "STD", "SCH 40", "SCH 60", "XS", "SCH 80", 
+                              "SCH 100", "SCH 120", "SCH 140", "SCH 160", "SCH XXS", "Non STD"]
+                ss_order = ["Schedule 5S", "Schedule 10S", "Schedule 40S", "Schedule 80S", "Schedule 160S", "XXS", "Non STD"]
+                is_order = ["IS 1239: Light (A-Class)", "IS 1239: Medium (B-Class)", "IS 1239: Heavy (C-Class)",
+                           '7" NB', '8" NB', '10" NB', '12" NB', '14" NB', '16" NB', '18" NB', '20" NB', "Non IS Standard"]
+                tubes_order = ["Small Wall Tube", "Medium Wall Tube", "Heavy Wall Tube", "Non-Standard Tube"]
+                
+                # Add schedules in preferred order based on detected grade types
                 for grade_type in grade_types:
                     if grade_type == "CS & AS":
-                        wt_schedule.extend(CS_AS_WT)
+                        # Filter to only include schedules that exist in CS_AS_WT
+                        cs_as_filtered = [schedule for schedule in cs_as_order if schedule in CS_AS_WT]
+                        wt_schedule.extend(cs_as_filtered)
                     elif grade_type == "SS":
-                        wt_schedule.extend(SS_WT)
+                        # Filter to only include schedules that exist in SS_WT
+                        ss_filtered = [schedule for schedule in ss_order if schedule in SS_WT]
+                        wt_schedule.extend(ss_filtered)
                     elif grade_type == "IS":
-                        wt_schedule.extend(IS_WT)
+                        # Filter to only include schedules that exist in IS_WT
+                        is_filtered = [schedule for schedule in is_order if schedule in IS_WT]
+                        wt_schedule.extend(is_filtered)
                     elif grade_type == "Tubes":
-                        wt_schedule.extend(TUBES_WT)
+                        # Filter to only include schedules that exist in TUBES_WT
+                        tubes_filtered = [schedule for schedule in tubes_order if schedule in TUBES_WT]
+                        wt_schedule.extend(tubes_filtered)
                 
-                # Remove duplicates and sort
-                wt_schedule = sorted(list(set(wt_schedule)))
+                # Remove duplicates while preserving order
+                seen = set()
+                wt_schedule = [x for x in wt_schedule if not (x in seen or seen.add(x))]
             
             # Build base DataFrame with all combinations
             import itertools
@@ -1456,7 +1488,11 @@ if data_file is not None:
                 .format("{:.2f}")
                 .applymap(lambda v: highlight(v, minval, maxval), subset=pd.IndexSlice[pivot_highlighted.index, pivot_highlighted.columns])
             )
-            st.dataframe(styled, use_container_width=True)
+            # Calculate height to show exactly up to the Total row (last row) - no extra space
+            num_rows = len(pivot_highlighted)
+            # Height calculation: 35px per row + 50px for header + 10px for minimal bottom padding
+            total_height = (num_rows * 35) + 50
+            st.dataframe(styled, use_container_width=True, height=total_height)
         else:
             st.info("No data available for pivot table.")
 
