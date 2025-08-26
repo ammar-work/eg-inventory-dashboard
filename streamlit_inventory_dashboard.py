@@ -172,15 +172,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Hide Streamlit branding and elements
+# Hide only deploy button and menu, keep sidebar toggle
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stDeployButton {display: none;}
-    .stApp > header {background-color: transparent;}
-    .stApp > footer {background-color: transparent;}
+    /* Hide only deploy button and main menu */
+    .stDeployButton {display: none !important;}
+    #MainMenu {visibility: hidden !important;}
+    
+    /* Hide footer branding */
+    footer {visibility: hidden !important;}
+    
+    /* Keep main content padding adjustments */
     .stApp > .main > .block-container {padding-top: 0 !important;}
     .stApp > .main > .block-container > div:first-child {margin-top: 0 !important;}
     .stApp > .main > .block-container > div:first-child > div:first-child {margin-top: 0 !important;}
