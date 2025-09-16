@@ -13,7 +13,7 @@ import time
 load_dotenv()  # this loads variables from .env into os.environ
 
 # --- Token Authentication ---
-Check for authentication token
+# Check for authentication token
 params = st.query_params
 auth_token = params.get('auth_token', None)
 
