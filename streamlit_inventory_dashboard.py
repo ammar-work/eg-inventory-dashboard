@@ -1085,6 +1085,9 @@ if data_file is not None:
                         all_data_clean['OD'] = pd.to_numeric(all_data_clean['OD'], errors='coerce')
                     if 'WT' in all_data_clean.columns:
                         all_data_clean['WT'] = pd.to_numeric(all_data_clean['WT'], errors='coerce')
+                    # Convert MT to numeric as well (treat blanks/invalid as 0 for aggregation)
+                    if 'MT' in all_data_clean.columns:
+                        all_data_clean['MT'] = pd.to_numeric(all_data_clean['MT'], errors='coerce').fillna(0)
                     
                     # Convert Make and Grade to string to ensure consistent grouping
                     if 'Make' in all_data_clean.columns:
