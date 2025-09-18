@@ -975,13 +975,13 @@ if data_file is not None:
         st.session_state.quick_access_spec = None
     
     # Popular specifications for quick access
-    popular_specs = ["CSSMP106B", "ASSMPP9", "ASSMPP22", "ASSMPP11", "ASSMTT11"]
+    popular_specs = ["CSSMP106B", "ASSMPP9", "ASSMPP11", "ASSMPP22"]
     
     # Create quick access buttons
     st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
     
-    # Create 5 columns for the quick access buttons
-    qcol1, qcol2, qcol3, qcol4, qcol5 = st.columns(5)
+    # Create 4 columns for the quick access buttons
+    qcol1, qcol2, qcol3, qcol4 = st.columns(4)
     
     # Get current specification filter to determine active state
     # We'll use session state to track the current selection
@@ -1004,14 +1004,6 @@ if data_file is not None:
             st.rerun()
     
     with qcol3:
-        assmpp22_btn = st.button("ASSMPP22", key="assmpp22_btn", use_container_width=True,
-                                help="Quick access to ASSMPP22 specification",
-                                type="primary" if "ASSMPP22" in current_spec_filter and "All" not in current_spec_filter else "secondary")
-        if assmpp22_btn:
-            st.session_state.quick_access_spec = "ASSMPP22"
-            st.rerun()
-    
-    with qcol4:
         assmpp11_btn = st.button("ASSMPP11", key="assmpp11_btn", use_container_width=True,
                                 help="Quick access to ASSMPP11 specification",
                                 type="primary" if "ASSMPP11" in current_spec_filter and "All" not in current_spec_filter else "secondary")
@@ -1019,12 +1011,12 @@ if data_file is not None:
             st.session_state.quick_access_spec = "ASSMPP11"
             st.rerun()
     
-    with qcol5:
-        assmtt11_btn = st.button("ASSMTT11", key="assmtt11_btn", use_container_width=True,
-                                help="Quick access to ASSMTT11 specification",
-                                type="primary" if "ASSMTT11" in current_spec_filter and "All" not in current_spec_filter else "secondary")
-        if assmtt11_btn:
-            st.session_state.quick_access_spec = "ASSMTT11"
+    with qcol4:
+        assmpp22_btn = st.button("ASSMPP22", key="assmpp22_btn", use_container_width=True,
+                                help="Quick access to ASSMPP22 specification",
+                                type="primary" if "ASSMPP22" in current_spec_filter and "All" not in current_spec_filter else "secondary")
+        if assmpp22_btn:
+            st.session_state.quick_access_spec = "ASSMPP22"
             st.rerun()
     
     # Add minimal spacing
