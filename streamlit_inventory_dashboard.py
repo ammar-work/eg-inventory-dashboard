@@ -14,38 +14,38 @@ load_dotenv()  # this loads variables from .env into os.environ
 
 # --- Token Authentication ---
 # Check for authentication token
-# params = st.query_params
-# auth_token = params.get('auth_token', None)
+params = st.query_params
+auth_token = params.get('auth_token', None)
 
-# # Verify token
-# if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
-#     # Set page config for unauthorized access
-#     st.set_page_config(page_title="Access Denied", layout="centered")
+# Verify token
+if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
+    # Set page config for unauthorized access
+    st.set_page_config(page_title="Access Denied", layout="centered")
     
-#     # Hide Streamlit branding on access denied page
-#     st.markdown("""
-#     <style>
-#         #MainMenu {visibility: hidden;}
-#         footer {visibility: hidden;}
-#         header {visibility: hidden;}
-#         .stDeployButton {display: none;}
-#         .stApp > header {background-color: transparent;}
-#         .stApp > footer {background-color: transparent;}
-#         .stApp > .main > .block-container {padding-top: 1rem;}
-#     </style>
-#     """, unsafe_allow_html=True)
+    # Hide Streamlit branding on access denied page
+    st.markdown("""
+    <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .stDeployButton {display: none;}
+        .stApp > header {background-color: transparent;}
+        .stApp > footer {background-color: transparent;}
+        .stApp > .main > .block-container {padding-top: 1rem;}
+    </style>
+    """, unsafe_allow_html=True)
     
-#     # Show unauthorized access message (clean, no logging visible to user)
-#     st.markdown("""
-#     <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
-#         <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
-#         <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
-#         <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
-#     </div>
-#     """, unsafe_allow_html=True)
+    # Show unauthorized access message (clean, no logging visible to user)
+    st.markdown("""
+    <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
+        <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
+        <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
+        <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-#     # Stop execution
-#     st.stop()
+    # Stop execution
+    st.stop()
 
 # --- AWS S3 Configuration ---
 # These should be set as environment variables for security
