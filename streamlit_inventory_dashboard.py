@@ -14,38 +14,38 @@ load_dotenv()  # this loads variables from .env into os.environ
 
 # --- Token Authentication ---
 # Check for authentication token
-params = st.query_params
-auth_token = params.get('auth_token', None)
+# params = st.query_params
+# auth_token = params.get('auth_token', None)
 
-# Verify token
-if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
-    # Set page config for unauthorized access
-    st.set_page_config(page_title="Access Denied", layout="centered")
+# # Verify token
+# if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
+#     # Set page config for unauthorized access
+#     st.set_page_config(page_title="Access Denied", layout="centered")
     
-    # Hide Streamlit branding on access denied page
-    st.markdown("""
-    <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        .stDeployButton {display: none;}
-        .stApp > header {background-color: transparent;}
-        .stApp > footer {background-color: transparent;}
-        .stApp > .main > .block-container {padding-top: 1rem;}
-    </style>
-    """, unsafe_allow_html=True)
+#     # Hide Streamlit branding on access denied page
+#     st.markdown("""
+#     <style>
+#         #MainMenu {visibility: hidden;}
+#         footer {visibility: hidden;}
+#         header {visibility: hidden;}
+#         .stDeployButton {display: none;}
+#         .stApp > header {background-color: transparent;}
+#         .stApp > footer {background-color: transparent;}
+#         .stApp > .main > .block-container {padding-top: 1rem;}
+#     </style>
+#     """, unsafe_allow_html=True)
     
-    # Show unauthorized access message (clean, no logging visible to user)
-    st.markdown("""
-    <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
-        <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
-        <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
-        <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
-    </div>
-    """, unsafe_allow_html=True)
+#     # Show unauthorized access message (clean, no logging visible to user)
+#     st.markdown("""
+#     <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
+#         <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
+#         <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
+#         <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
+#     </div>
+#     """, unsafe_allow_html=True)
     
-    # Stop execution
-    st.stop()
+#     # Stop execution
+#     st.stop()
 
 # --- AWS S3 Configuration ---
 # These should be set as environment variables for security
@@ -421,7 +421,7 @@ def categorize_carbon(od, wt):
         (10.3, 2.41), (13.7, 3.02), (17.1, 3.20), (21.3, 3.73), (26.7, 3.91), (33.4, 4.55),
         (42.2, 4.85), (48.3, 5.08), (60.3, 5.54), (73.0, 7.01), (88.9, 7.62), (101.6, 8.08),
         (114.3, 8.56), (141.3, 9.53), (168.3, 10.97), (219.1, 12.70), (273.0, 15.09), (273.1, 15.09),
-        (323.8, 17.48), (355.6, 19.05), (406.4, 21.44), (406.4, 25.4), (457.0, 23.83), (508.0, 26.19),
+        (323.8, 17.48), (355.6, 19.05), (406.4, 21.44), (457.0, 23.83), (508.0, 26.19),
         (559.0, 28.58), (610.0, 30.96), (609.6, 30.96)
     ]:
         return "SCH 80"
@@ -1275,7 +1275,8 @@ if data_file is not None:
         def apply_filters(df):
             filtered = df.copy()
             # Make - Filter logic: handle comma-separated values and single values
-            if 'Make' in filtered.columns and make_filter:
+            # Skip Make filter for Incoming chart type (like Free for Sale)
+            if 'Make' in filtered.columns and make_filter and size_chart_type != "Incoming":
                 if "All" in make_filter:
                     # If "All" is selected, exclude any other specific values
                     exclude_values = [v for v in make_filter if v != "All"]
@@ -1658,7 +1659,9 @@ if data_file is not None:
         if size_chart_type == "Free For Sale":
             # For Free For Sale, always use the aggregated preview data
             if 'df_preview' in locals() and df_preview is not None:
-                df_filtered_display = df_preview.copy()
+                # Apply filters to the preview data (same filters as other chart types)
+                df_preview_filtered = apply_filters(df_preview.copy())
+                df_filtered_display = df_preview_filtered
                 st.write(f"Filtered rows: {len(df_filtered_display)}")
             else:
                 # Fallback to filtered data if preview data is not available
@@ -1727,6 +1730,46 @@ if data_file is not None:
                 cols.remove('Product Age')
                 cols.insert(age_idx + 1, 'Product Age')
                 df_filtered_display = df_filtered_display[cols]
+                
+                # Filter and reorder columns for Stock preview table
+                # Define the exact columns to show in the specified order
+                stock_columns = [
+                    'Supplier', 'Specification', 'Grade', 'OD', 'WT', 'OD_Category', 'WT_Schedule',
+                    'Add_Spec', 'Age', 'Product Age', 'Branch', 'MT', 'Mtrs', 'Kg/Mtr', 
+                    'Make', 'Heat_No', 'Nos', 'HSN_CODE', 'TC_TYPE'
+                ]
+                
+                # Filter to only show columns that exist in the data
+                available_stock_columns = [col for col in stock_columns if col in df_filtered_display.columns]
+                
+                # Reorder the dataframe to show only the specified columns in the specified order
+                if available_stock_columns:
+                    df_filtered_display = df_filtered_display[available_stock_columns]
+                
+                # Shorten Branch column values for Stock preview table
+                if 'Branch' in df_filtered_display.columns:
+                    def shorten_branch_name(branch_value):
+                        """Convert full city names to short codes"""
+                        if pd.isna(branch_value):
+                            return branch_value
+                        
+                        branch_str = str(branch_value).strip()
+                        
+                        # Mapping of full names to short codes (case-insensitive)
+                        branch_mapping = {
+                            'pune': 'PUN',
+                            'bangalore': 'BLR',
+                            'bommasandra': 'BOM'
+                        }
+                        
+                        # Convert to lowercase for case-insensitive matching
+                        branch_lower = branch_str.lower()
+                        
+                        # Return short code if found, otherwise return original value
+                        return branch_mapping.get(branch_lower, branch_str)
+                    
+                    # Apply the shortening to Branch column
+                    df_filtered_display['Branch'] = df_filtered_display['Branch'].apply(shorten_branch_name)
         
         # Remove Grade_Logic column from display (it's only for internal logic)
         if 'Grade_Logic' in df_filtered_display.columns:
@@ -1833,10 +1876,69 @@ if data_file is not None:
                     return [''] * len(row)
             
             # Apply styling to entire rows based on Product Age column
-            # Format only OD and WT columns to 2 decimal places
-            df_filtered_display = df_filtered_display.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT'])
+            # Format OD, WT columns to 2 decimal places and MT column to 3 decimal places
+            df_filtered_display = df_filtered_display.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT'])
+        else:
+            # For all other chart types (Reserved, Incoming, Free for Sale), format MT column to 3 decimal places
+            df_filtered_display = df_filtered_display.style.format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT'])
         
         st.dataframe(df_filtered_display)
+        
+        # Add Product Age bar chart for Stock chart type only
+        if size_chart_type == "Stock" and 'Product Age' in df_filtered_display.data.columns:
+            # Add horizontal line and styled heading matching other sections
+            st.markdown("<hr style='margin: 20px 0 10px 0; border: 1px solid #ddd;'>", unsafe_allow_html=True)
+            st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>Product Age Distribution</h5>", unsafe_allow_html=True)
+            # Create aggregated data for Product Age using the underlying DataFrame
+            age_counts = df_filtered_display.data['Product Age'].value_counts()
+            
+            # Define the order for age categories
+            age_order = ["0-1 years", "1-2 years", "2-3 years", "3-4 years", "4-5 years", "5+ years", "Null"]
+            
+            # Reorder the data according to the defined order
+            age_counts_ordered = age_counts.reindex(age_order, fill_value=0)
+            
+            # Create bar chart with colors matching the table
+            import plotly.express as px
+            
+            # Define colors matching the table color scheme (slightly darker for better visibility)
+            age_colors = {
+                "0-1 years": "#A5D6A7",      # Darker light green
+                "1-2 years": "#C5E1A5",      # Darker very light green  
+                "2-3 years": "#FFF176",      # Darker light yellow
+                "3-4 years": "#FFB74D",      # Darker light orange
+                "4-5 years": "#EF9A9A",      # Darker light red
+                "5+ years": "#F06292",       # Darker light pink-red
+                "Null": "#BDBDBD"            # Darker light gray for null values
+            }
+            
+            # Create color list for the bars
+            bar_colors = [age_colors.get(age, "#F5F5F5") for age in age_counts_ordered.index]
+            
+            fig = px.bar(
+                x=age_counts_ordered.index,
+                y=age_counts_ordered.values,
+                labels={'x': 'Product Age', 'y': 'Number of Products'},
+                color=age_counts_ordered.index,
+                color_discrete_map=age_colors
+            )
+            
+            # Update layout
+            fig.update_layout(
+                showlegend=False,
+                height=400,
+                xaxis_title="Product Age",
+                yaxis_title="Number of Products"
+            )
+            
+            # Customize hover template to remove color information
+            fig.update_traces(
+                hovertemplate="<b>Product Age:</b> %{x}<br><b>Number of Products:</b> %{y}<extra></extra>"
+            )
+            
+            # Display the chart
+            st.plotly_chart(fig, use_container_width=True)
+        
         st.markdown("<hr style='margin: 20px 0 0 0; border: 1px solid #ddd;'>", unsafe_allow_html=True)
         
         # Performance monitoring - show response time
