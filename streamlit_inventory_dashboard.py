@@ -14,38 +14,38 @@ load_dotenv()  # this loads variables from .env into os.environ
 
 # --- Token Authentication ---
 # Check for authentication token
-params = st.query_params
-auth_token = params.get('auth_token', None)
+# params = st.query_params
+# auth_token = params.get('auth_token', None)
 
-# Verify token
-if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
-    # Set page config for unauthorized access
-    st.set_page_config(page_title="Access Denied", layout="centered")
+# # Verify token
+# if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
+#     # Set page config for unauthorized access
+#     st.set_page_config(page_title="Access Denied", layout="centered")
     
-    # Hide Streamlit branding on access denied page
-    st.markdown("""
-    <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        .stDeployButton {display: none;}
-        .stApp > header {background-color: transparent;}
-        .stApp > footer {background-color: transparent;}
-        .stApp > .main > .block-container {padding-top: 1rem;}
-    </style>
-    """, unsafe_allow_html=True)
+#     # Hide Streamlit branding on access denied page
+#     st.markdown("""
+#     <style>
+#         #MainMenu {visibility: hidden;}
+#         footer {visibility: hidden;}
+#         header {visibility: hidden;}
+#         .stDeployButton {display: none;}
+#         .stApp > header {background-color: transparent;}
+#         .stApp > footer {background-color: transparent;}
+#         .stApp > .main > .block-container {padding-top: 1rem;}
+#     </style>
+#     """, unsafe_allow_html=True)
     
-    # Show unauthorized access message (clean, no logging visible to user)
-    st.markdown("""
-    <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
-        <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
-        <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
-        <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
-    </div>
-    """, unsafe_allow_html=True)
+#     # Show unauthorized access message (clean, no logging visible to user)
+#     st.markdown("""
+#     <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
+#         <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
+#         <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
+#         <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
+#     </div>
+#     """, unsafe_allow_html=True)
     
-    # Stop execution
-    st.stop()
+#     # Stop execution
+#     st.stop()
 
 # --- AWS S3 Configuration ---
 # These should be set as environment variables for security
@@ -1721,22 +1721,29 @@ if data_file is not None:
             
             # Add Age (In Years) column for Stock chart type
             if size_chart_type == "Stock" and 'Age' in df_filtered_display.columns:
+                # Add Age (In Years) column - convert days to exact years with 2 decimals
+                # Convert Age to numeric first to handle string values
+                df_filtered_display['Age (In Years)'] = pd.to_numeric(df_filtered_display['Age'], errors='coerce').apply(lambda x: round(x / 365, 2) if pd.notna(x) else x)
+                
+                # Add Product Age column
                 df_filtered_display['Product Age'] = df_filtered_display['Age'].apply(convert_age_to_years)
                 
-                # Reorder columns to put Product Age right after Age column
+                # Reorder columns to put Age (In Years) and Product Age right after Age column
                 cols = df_filtered_display.columns.tolist()
                 age_idx = cols.index('Age')
-                # Remove Product Age from current position and insert it after Age
+                # Remove both columns from current position and insert them after Age
+                cols.remove('Age (In Years)')
                 cols.remove('Product Age')
-                cols.insert(age_idx + 1, 'Product Age')
+                cols.insert(age_idx + 1, 'Age (In Years)')
+                cols.insert(age_idx + 2, 'Product Age')
                 df_filtered_display = df_filtered_display[cols]
                 
                 # Filter and reorder columns for Stock preview table
                 # Define the exact columns to show in the specified order
                 stock_columns = [
                     'Supplier', 'Specification', 'Grade', 'OD', 'WT', 'OD_Category', 'WT_Schedule',
-                    'Add_Spec', 'Age', 'Product Age', 'Branch', 'MT', 'Mtrs', 'Kg/Mtr', 
-                    'Make', 'Heat_No', 'Nos', 'HSN_CODE', 'TC_TYPE'
+                    'Add_Spec', 'Age (In Years)', 'Branch', 'MT', 'Mtrs', 'Kg/Mtr', 
+                    'Make', 'Heat_No', 'Nos', 'HSN_CODE', 'TC_TYPE', 'Product Age'
                 ]
                 
                 # Filter to only show columns that exist in the data
@@ -1876,8 +1883,8 @@ if data_file is not None:
                     return [''] * len(row)
             
             # Apply styling to entire rows based on Product Age column
-            # Format OD, WT columns to 2 decimal places and MT column to 3 decimal places
-            df_filtered_display = df_filtered_display.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT'])
+            # Format OD, WT, and Age (In Years) columns to 2 decimal places and MT column to 3 decimal places
+            df_filtered_display = df_filtered_display.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
         else:
             # For all other chart types (Reserved, Incoming, Free for Sale), format MT column to 3 decimal places
             df_filtered_display = df_filtered_display.style.format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT'])
