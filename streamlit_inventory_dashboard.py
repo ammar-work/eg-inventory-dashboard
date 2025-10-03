@@ -883,8 +883,7 @@ quick_access_spec = st.session_state.get('quick_access_spec', None)
 if quick_access_spec:
     # If a quick access spec is selected, use only that specification
     spec_filter_default = [quick_access_spec]
-    # Clear the quick access selection after using it
-    st.session_state.quick_access_spec = None
+    # Don't clear immediately - let the filter be applied first
 else:
     # Use the current session state value or default to "All"
     spec_filter_default = st.session_state.get('sidebar_spec_multiselect', ["All"])
@@ -896,17 +895,21 @@ spec_filter = st.sidebar.multiselect("Specification (Product Name)", spec_option
 # Update session state to track current specification filter for button styling
 st.session_state.current_spec_filter = spec_filter
 
+# Clear quick access spec after filter has been applied
+if quick_access_spec:
+    st.session_state.quick_access_spec = None
+
 # Get grade-specific filter options based on selected specifications
 od_category_options_filtered, wt_category_options_filtered = get_grade_specific_options_from_specs(spec_filter)
 
 st.sidebar.markdown("**Additional Filters:**")
-make_filter = st.sidebar.multiselect("Make", make_options, default=["All"])
-add_spec_filter = st.sidebar.multiselect("Additional Spec", add_spec_options, default=["All"])
-od_category_filter = st.sidebar.multiselect("OD Category", od_category_options_filtered, default=["All"])
-wt_category_filter = st.sidebar.multiselect("WT Category", wt_category_options_filtered, default=["All"])
-od_filter = st.sidebar.multiselect("OD", od_options, default=["All"])
-wt_filter = st.sidebar.multiselect("WT", wt_options, default=["All"])
-branch_filter = st.sidebar.multiselect("Branch", branch_options, default=["All"])
+make_filter = st.sidebar.multiselect("Make", make_options, default=["All"], key="make_filter")
+add_spec_filter = st.sidebar.multiselect("Additional Spec", add_spec_options, default=["All"], key="add_spec_filter")
+od_category_filter = st.sidebar.multiselect("OD Category", od_category_options_filtered, default=["All"], key="od_category_filter")
+wt_category_filter = st.sidebar.multiselect("WT Category", wt_category_options_filtered, default=["All"], key="wt_category_filter")
+od_filter = st.sidebar.multiselect("OD", od_options, default=["All"], key="od_filter")
+wt_filter = st.sidebar.multiselect("WT", wt_options, default=["All"], key="wt_filter")
+branch_filter = st.sidebar.multiselect("Branch", branch_options, default=["All"], key="branch_filter")
 
 # Show S3 status at the bottom
 if data_file:
