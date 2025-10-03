@@ -10,42 +10,45 @@ from dotenv import load_dotenv
 from functools import lru_cache
 import time
 
+# Import comparison tab functionality
+from comparison_tab import render_comparison_tab, get_comparison_data_for_dashboard
+
 load_dotenv()  # this loads variables from .env into os.environ
 
 # --- Token Authentication ---
 # Check for authentication token
-params = st.query_params
-auth_token = params.get('auth_token', None)
+# params = st.query_params
+# auth_token = params.get('auth_token', None)
 
-# Verify token
-if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
-    # Set page config for unauthorized access
-    st.set_page_config(page_title="Access Denied", layout="centered")
+# # Verify token
+# if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
+#     # Set page config for unauthorized access
+#     st.set_page_config(page_title="Access Denied", layout="centered")
     
-    # Hide Streamlit branding on access denied page
-    st.markdown("""
-    <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        .stDeployButton {display: none;}
-        .stApp > header {background-color: transparent;}
-        .stApp > footer {background-color: transparent;}
-        .stApp > .main > .block-container {padding-top: 1rem;}
-    </style>
-    """, unsafe_allow_html=True)
+#     # Hide Streamlit branding on access denied page
+#     st.markdown("""
+#     <style>
+#         #MainMenu {visibility: hidden;}
+#         footer {visibility: hidden;}
+#         header {visibility: hidden;}
+#         .stDeployButton {display: none;}
+#         .stApp > header {background-color: transparent;}
+#         .stApp > footer {background-color: transparent;}
+#         .stApp > .main > .block-container {padding-top: 1rem;}
+#     </style>
+#     """, unsafe_allow_html=True)
     
-    # Show unauthorized access message (clean, no logging visible to user)
-    st.markdown("""
-    <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
-        <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
-        <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
-        <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
-    </div>
-    """, unsafe_allow_html=True)
+#     # Show unauthorized access message (clean, no logging visible to user)
+#     st.markdown("""
+#     <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
+#         <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
+#         <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
+#         <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
+#     </div>
+#     """, unsafe_allow_html=True)
     
-    # Stop execution
-    st.stop()
+#     # Stop execution
+#     st.stop()
 
 # --- AWS S3 Configuration ---
 # These should be set as environment variables for security
@@ -927,7 +930,7 @@ if data_file is not None:
         st.session_state.chart_type = "Stock"
     
     # Create tab buttons using columns (moved to top, no extra spacing)
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     # Get current chart type for button styling
     current_chart_type = st.session_state.get('chart_type', 'Stock')
@@ -966,6 +969,16 @@ if data_file is not None:
                 st.session_state.incoming_filter = "ALL INCOMING"
             st.rerun()
     
+    with col5:
+        comparison_active = st.button("📊 Compare Files", key="comparison_tab", use_container_width=True,
+                                     type="primary" if current_chart_type == "Compare Files" else "secondary")
+        if comparison_active:
+            st.session_state.chart_type = "Compare Files"
+            # Reset incoming filter when switching away from Incoming
+            if 'incoming_filter' in st.session_state:
+                st.session_state.incoming_filter = "ALL INCOMING"
+            st.rerun()
+    
     # Use the session state to determine which tab is active
     size_chart_type = st.session_state.chart_type
     
@@ -980,8 +993,8 @@ if data_file is not None:
     # Create quick access buttons
     st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
     
-    # Create 4 columns for the quick access buttons
-    qcol1, qcol2, qcol3, qcol4 = st.columns(4)
+    # Create 5 columns for the quick access buttons
+    qcol1, qcol2, qcol3, qcol4, qcol5 = st.columns(5)
     
     # Get current specification filter to determine active state
     # We'll use session state to track the current selection
@@ -1019,6 +1032,10 @@ if data_file is not None:
             st.session_state.quick_access_spec = "ASSMPP22"
             st.rerun()
     
+    with qcol5:
+        # Empty column for spacing - could add another quick access button here if needed
+        pass
+    
     # Add minimal spacing
     st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
     
@@ -1026,7 +1043,14 @@ if data_file is not None:
     st.markdown("<hr style='margin: 5px 0 15px 0; border: 1px solid #666666;'>", unsafe_allow_html=True)
     
     # Handle different data sources
-    if size_chart_type == "Reserved":
+    if size_chart_type == "Compare Files":
+        # File Comparison Feature - handled by separate module
+        render_comparison_tab()
+        
+        # Get comparison data for dashboard display
+        df = get_comparison_data_for_dashboard()
+        
+    elif size_chart_type == "Reserved":
         df = sheets.get("Reservations", pd.DataFrame())
     elif size_chart_type == "Free For Sale":
         # Calculate Free For Sale = Stock - Reserved + Incoming
@@ -1493,9 +1517,23 @@ if data_file is not None:
                     st.rerun()
         
         st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>{size_chart_type} Items Heatmap{incoming_filter_display}</h5>", unsafe_allow_html=True)
-        metric_col = metric if metric in df_filtered.columns else None
-        if metric_col is None:
-            metric_col = next((c for c in df_filtered.columns if c.lower() == metric.lower()), None)
+        
+        # Special handling for comparison tab
+        if size_chart_type == "Compare Files":
+            metric_col = "Change in Stock"  # Use Change in Stock column for comparison data
+        else:
+            metric_col = metric if metric in df_filtered.columns else None
+            if metric_col is None:
+                metric_col = next((c for c in df_filtered.columns if c.lower() == metric.lower()), None)
+        # Ensure metric_col is a single column name (not a list or multiple columns)
+        if isinstance(metric_col, list):
+            metric_col = metric_col[0] if metric_col else None
+        
+        # Debug: Check metric_col for comparison tab (remove after testing)
+        # if size_chart_type == "Compare Files":
+        #     st.write(f"Debug - metric_col: {metric_col}, type: {type(metric_col)}")
+        #     st.write(f"Debug - df_filtered columns: {list(df_filtered.columns)}")
+        
         if metric_col and not df_filtered.empty:
             # Select correct WT_Schedule list based on derived grade types from specifications
             if not spec_filter or "All" in spec_filter:
@@ -1715,6 +1753,25 @@ if data_file is not None:
                     
                     # Apply the formatting to the Delivery_as_on_Date column
                     df_filtered_display['Delivery_as_on_Date'] = df_filtered_display['Delivery_as_on_Date'].apply(format_date)
+        elif size_chart_type == "Compare Files":
+            # Special handling for comparison data - add status filter and color coding
+            if 'Status' in df_filtered.columns:
+                # Add status filter above the table
+                status_filter = st.selectbox(
+                    "Filter by Status:",
+                    ["All", "Added", "Removed", "Increased", "Decreased", "Unchanged"],
+                    key="main_dashboard_status_filter"
+                )
+                
+                # Apply status filter
+                if status_filter != "All":
+                    df_filtered = df_filtered[df_filtered['Status'] == status_filter]
+                
+                st.write(f"Filtered rows: {len(df_filtered)}")
+                df_filtered_display = df_filtered.reset_index(drop=True)
+            else:
+                st.write(f"Filtered rows: {len(df_filtered)}")
+                df_filtered_display = df_filtered.reset_index(drop=True)
         else:
             st.write(f"Filtered rows: {len(df_filtered)}")
             df_filtered_display = df_filtered.reset_index(drop=True)
@@ -1885,6 +1942,22 @@ if data_file is not None:
             # Apply styling to entire rows based on Product Age column
             # Format OD, WT, and Age (In Years) columns to 2 decimal places and MT column to 3 decimal places
             df_filtered_display = df_filtered_display.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
+        elif size_chart_type == "Compare Files":
+            # Special formatting for comparison tab - add color coding by status and format numbers
+            def color_rows_by_status(row):
+                status = row['Status']
+                if status == 'Added':
+                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)  # Light green
+                elif status == 'Removed':
+                    return ['background-color: #FFEBEE; color: #000000;'] * len(row)  # Light red
+                elif status == 'Increased':
+                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)  # Light green
+                elif status == 'Decreased':
+                    return ['background-color: #FFF3E0; color: #000000;'] * len(row)  # Light orange
+                else:  # Unchanged
+                    return [''] * len(row)
+            
+            df_filtered_display = df_filtered_display.style.apply(color_rows_by_status, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['Change in Stock'])
         else:
             # For all other chart types (Reserved, Incoming, Free for Sale), format MT column to 3 decimal places
             # Also format Stock, Incoming, and Reservations columns to 3 decimal places for Free for Sale
@@ -1958,7 +2031,9 @@ if data_file is not None:
         # st.info(f"🚀 Performance: Dashboard loaded in {response_time:.2f} seconds")
         
     else:
-        st.warning(f"No data found in the '{size_chart_type}' sheet.")
+        # Don't show warning for comparison tab when no data is selected yet
+        if size_chart_type != "Compare Files":
+            st.warning(f"No data found in the '{size_chart_type}' sheet.")
 else:
     if error_message:
         st.error(f"❌ {error_message}")
