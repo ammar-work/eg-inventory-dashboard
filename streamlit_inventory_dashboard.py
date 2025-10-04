@@ -881,23 +881,20 @@ st.sidebar.markdown("**Primary Filter:**")
 # Handle quick access specification selection
 quick_access_spec = st.session_state.get('quick_access_spec', None)
 if quick_access_spec:
-    # If a quick access spec is selected, use only that specification
-    spec_filter_default = [quick_access_spec]
-    # Don't clear immediately - let the filter be applied first
-else:
-    # Use the current session state value or default to "All"
-    spec_filter_default = st.session_state.get('sidebar_spec_multiselect', ["All"])
+    # If a quick access spec is selected, set the session state directly
+    st.session_state.sidebar_spec_multiselect = [quick_access_spec]
+    # Clear the quick access selection after using it
+    st.session_state.quick_access_spec = None
 
-spec_filter = st.sidebar.multiselect("Specification (Product Name)", spec_options, default=spec_filter_default, 
+# Get the current spec filter from session state
+spec_filter = st.session_state.get('sidebar_spec_multiselect', ["All"])
+
+spec_filter = st.sidebar.multiselect("Specification (Product Name)", spec_options, 
                                     key="sidebar_spec_multiselect",
                                     help="Select specifications to filter. Grade Type is automatically derived from specification names.")
 
 # Update session state to track current specification filter for button styling
 st.session_state.current_spec_filter = spec_filter
-
-# Clear quick access spec after filter has been applied
-if quick_access_spec:
-    st.session_state.quick_access_spec = None
 
 # Get grade-specific filter options based on selected specifications
 od_category_options_filtered, wt_category_options_filtered = get_grade_specific_options_from_specs(spec_filter)
