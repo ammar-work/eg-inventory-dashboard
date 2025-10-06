@@ -802,10 +802,48 @@ if data_file is not None:
         
         if all_makes:
             make_options = ["All"] + sorted(list(all_makes))
-        if od_col:
-            od_options = ["All"] + sorted(df[od_col].dropna().unique().astype(str).tolist(), key=lambda x: float(x) if x.replace('.','',1).isdigit() else x)
-        if wt_col:
-            wt_options = ["All"] + sorted(df[wt_col].dropna().unique().astype(str).tolist(), key=lambda x: float(x) if x.replace('.','',1).isdigit() else x)
+        # Collect OD and WT values from all sheets to avoid duplicates
+        all_od_values = set()
+        all_wt_values = set()
+        all_branch_values = set()
+        
+        for sheet_name, sheet_df in sheets.items():
+            if not sheet_df.empty:
+                # Get column names for this sheet
+                sheet_od_col = next((c for c in sheet_df.columns if c.lower() in ["od", "o_d", "outer_diameter"]), None)
+                sheet_wt_col = next((c for c in sheet_df.columns if c.lower() in ["wt", "w_t", "wall_thickness"]), None)
+                sheet_branch_col = next((c for c in sheet_df.columns if c.lower() in ["branch", "location"]), None)
+                
+                # Collect OD values
+                if sheet_od_col:
+                    od_values = sheet_df[sheet_od_col].dropna().unique()
+                    all_od_values.update(od_values)
+                
+                # Collect WT values
+                if sheet_wt_col:
+                    wt_values = sheet_df[sheet_wt_col].dropna().unique()
+                    all_wt_values.update(wt_values)
+                
+                # Collect Branch values
+                if sheet_branch_col:
+                    branch_values = sheet_df[sheet_branch_col].dropna().astype(str).unique()
+                    all_branch_values.update(branch_values)
+        
+        # Set filter options from collected values
+        if all_od_values:
+            # Round to 3 decimal places to avoid floating point precision issues
+            od_rounded = [round(float(x), 3) for x in all_od_values]
+            # Sort numerically, then convert to strings
+            od_options = ["All"] + [str(x) for x in sorted(od_rounded)]
+        
+        if all_wt_values:
+            # Round to 3 decimal places to avoid floating point precision issues
+            wt_rounded = [round(float(x), 3) for x in all_wt_values]
+            # Sort numerically, then convert to strings
+            wt_options = ["All"] + [str(x) for x in sorted(wt_rounded)]
+        
+        if all_branch_values:
+            branch_options = ["All"] + sorted(list(all_branch_values))
         if spec_col:
             # Show all specifications from mapping sheet for consistency
             spec_options = ["All"] + sorted(list(SPECIFICATION_MAPPING.keys()))
@@ -900,12 +938,12 @@ st.session_state.current_spec_filter = spec_filter
 od_category_options_filtered, wt_category_options_filtered = get_grade_specific_options_from_specs(spec_filter)
 
 st.sidebar.markdown("**Additional Filters:**")
-make_filter = st.sidebar.multiselect("Make", make_options, default=["All"], key="make_filter")
+od_category_filter = st.sidebar.multiselect("OD (Inches)", od_category_options_filtered, default=["All"], key="od_category_filter")
+wt_category_filter = st.sidebar.multiselect("WT Schedule", wt_category_options_filtered, default=["All"], key="wt_category_filter")
+od_filter = st.sidebar.multiselect("OD (mm)", od_options, default=["All"], key="od_filter")
+wt_filter = st.sidebar.multiselect("WT (mm)", wt_options, default=["All"], key="wt_filter")
 add_spec_filter = st.sidebar.multiselect("Additional Spec", add_spec_options, default=["All"], key="add_spec_filter")
-od_category_filter = st.sidebar.multiselect("OD Category", od_category_options_filtered, default=["All"], key="od_category_filter")
-wt_category_filter = st.sidebar.multiselect("WT Category", wt_category_options_filtered, default=["All"], key="wt_category_filter")
-od_filter = st.sidebar.multiselect("OD", od_options, default=["All"], key="od_filter")
-wt_filter = st.sidebar.multiselect("WT", wt_options, default=["All"], key="wt_filter")
+make_filter = st.sidebar.multiselect("Make", make_options, default=["All"], key="make_filter")
 branch_filter = st.sidebar.multiselect("Branch", branch_options, default=["All"], key="branch_filter")
 
 # Show S3 status at the bottom
@@ -1893,7 +1931,34 @@ if data_file is not None:
             else:
                 df_filtered_display = df_filtered_display.style.format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT'])
         
-        st.dataframe(df_filtered_display)
+        # Rename columns for better display while preserving styling
+        if hasattr(df_filtered_display, 'data'):
+            # It's a Styler object, get the underlying DataFrame
+            df_underlying = df_filtered_display.data.copy()
+        else:
+            # It's a regular DataFrame
+            df_underlying = df_filtered_display.copy()
+        
+        # Rename columns for display
+        column_mapping = {
+            'OD_Category': 'OD (Inches)',
+            'OD': 'OD (mm)',
+            'WT': 'WT (mm)'
+        }
+        df_underlying.columns = [column_mapping.get(col, col) for col in df_underlying.columns]
+        
+        # Reapply styling to the renamed DataFrame
+        if size_chart_type == "Stock" and 'Product Age' in df_underlying.columns:
+            # Apply color coding for Stock chart type
+            df_display_final = df_underlying.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
+        else:
+            # For all other chart types, apply formatting
+            if size_chart_type == "Free For Sale":
+                df_display_final = df_underlying.style.format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)']).format("{:.3f}", subset=['MT', 'Stock', 'Incoming', 'Reservations'])
+            else:
+                df_display_final = df_underlying.style.format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)']).format("{:.3f}", subset=['MT'])
+        
+        st.dataframe(df_display_final)
         
         # Add Product Age bar chart for Stock chart type only
         if size_chart_type == "Stock" and 'Product Age' in df_filtered_display.data.columns:
