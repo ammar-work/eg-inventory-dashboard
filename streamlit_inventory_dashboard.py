@@ -271,6 +271,66 @@ else:
     error_message = error
 
 # --- Sidebar ---
+# Add "See What's New" button above Controls
+if st.sidebar.button("📢 See What's New", key="whats_new_btn", use_container_width=True):
+    st.session_state.show_whats_new = True
+
+# Show the custom "What's New" popup when button is clicked
+if st.session_state.get('show_whats_new', False):
+    # Create a prominent update notification using Streamlit components
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #4CAF50 0%, #45a049 50%, #2E7D32 100%);
+        padding: 20px;
+        border-radius: 12px;
+        margin: 15px 0;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+        border: 2px solid #1B5E20;
+        max-width: 750px;
+        margin-left: auto;
+        margin-right: auto;
+        position: relative;
+    ">
+        <div style="
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            color: rgba(255,255,255,0.7);
+            font-size: 11px;
+            font-weight: normal;
+        ">
+            11/10/2025
+        </div>
+        <h2 style="color: white; margin: 0 0 15px 0; font-size: 24px; text-align: center;">
+            What's New in Dashboard!
+        </h2>
+        <div style="color: white; font-size: 14px; line-height: 1.5;">
+            <div style="background: rgba(255,255,255,0.15); padding: 16px; border-radius: 10px; margin: 12px 0;">
+                <h3 style="color: #FFD700; margin: 0 0 12px 0; font-size: 18px;">✨ Latest Updates & Improvements</h3>
+                <ul style="margin: 0; padding-left: 18px; font-size: 16px;">
+                    <li style="margin: 6px 0;"><strong>New Visualization:</strong> Added a Product Age bar chart below the Stock Preview table.</li>
+                    <li style="margin: 6px 0;"><strong>Performance Improvement:</strong> Switching between tabs and applying filters is now up to 50× faster.</li>
+                    <li style="margin: 6px 0;"><strong>Stock Preview Table Enhancements:</strong> Product Age is now displayed in years (e.g., 0.19, 2.99) instead of days. Branch names now appear as short codes (e.g., BLR, BOM) for easier readability. The MT column also now shows values with three decimal places for better precision.</li>
+                    <li style="margin: 6px 0;"><strong>WT Schedule Fix:</strong> Corrected categorization for (406.4, 21.44) and (406.4, 25.40).</li>
+                    <li style="margin: 6px 0;"><strong>Filter Enhancement:</strong> Fixed the Make filter issue in the Incoming tab (no more “No data” errors).</li>
+                    <li style="margin: 6px 0;"><strong>Quick Spec Buttons:</strong> The top specification buttons are now responsive and work properly.</li>
+                    <li style="margin: 6px 0;"><strong>Better Labels:</strong> OD and WT filter names now include units (mm, inches) for better clarity.</li>
+                </ul>
+            </div>
+            <div style="text-align: center; margin-top: 12px; font-style: italic; color: #E8F5E8; font-size: 13px;">
+                Thank you!
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Add close button using Streamlit
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        if st.button("Got it! 👍", key="close_modal_btn", use_container_width=True, type="primary"):
+            st.session_state.show_whats_new = False
+            st.rerun()
+
 st.sidebar.header("Controls")
 
 # Show refresh button
@@ -600,6 +660,7 @@ def categorize_WT_schedule(od, wt, grade):
         return "Unknown"
 
 # --- Data Processing Helper ---
+@st.cache_data
 def add_categorizations(df):
     """REAL OPTIMIZATION: Vectorized categorization for 3-5x faster performance"""
     # Add OD_Category and WT_Schedule columns
@@ -749,7 +810,18 @@ branch_options = ["All"]
 
 # Load data and update filter options dynamically
 if data_file is not None:
-    sheets = load_inventory_data(data_file)
+    # Check if we already have processed data in session state
+    file_key = str(data_file.name) if hasattr(data_file, 'name') else str(data_file)
+    
+    if 'processed_sheets' not in st.session_state or st.session_state.get('current_file_key') != file_key:
+        with st.spinner("Processing Data..."):
+            sheets = load_inventory_data(data_file)
+            # Cache the processed data in session state
+            st.session_state.processed_sheets = sheets
+            st.session_state.current_file_key = file_key
+    else:
+        # Use cached data
+        sheets = st.session_state.processed_sheets
     # Collect filter options from all sheets to ensure comprehensive coverage
     all_individual_specs = set()
     
@@ -1958,7 +2030,8 @@ if data_file is not None:
             else:
                 df_display_final = df_underlying.style.format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)']).format("{:.3f}", subset=['MT'])
         
-        st.dataframe(df_display_final)
+        with st.spinner("Generating Table..."):
+            st.dataframe(df_display_final)
         
         # Add Product Age bar chart for Stock chart type only
         if size_chart_type == "Stock" and 'Product Age' in df_filtered_display.data.columns:
