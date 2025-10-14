@@ -299,7 +299,7 @@ if st.session_state.get('show_whats_new', False):
             font-size: 11px;
             font-weight: normal;
         ">
-            11/10/2025
+            14/10/2025
         </div>
         <h2 style="color: white; margin: 0 0 15px 0; font-size: 24px; text-align: center;">
             What's New in Dashboard!
@@ -309,7 +309,7 @@ if st.session_state.get('show_whats_new', False):
                 <h3 style="color: #FFD700; margin: 0 0 12px 0; font-size: 18px;">✨ Latest Updates & Improvements</h3>
                 <ul style="margin: 0; padding-left: 18px; font-size: 16px;">
                     <li style="margin: 6px 0;"><strong>New Visualization:</strong> Added a Product Age bar chart below the Stock Preview table.</li>
-                    <li style="margin: 6px 0;"><strong>Performance Improvement:</strong> Switching between tabs and applying filters is now up to 50× faster.</li>
+                    <li style="margin: 6px 0;"><strong>Performance Improvement:</strong> Switching between tabs and applying filters is now up to 5× faster.</li>
                     <li style="margin: 6px 0;"><strong>Stock Preview Table Enhancements:</strong> Product Age is now displayed in years (e.g., 0.19, 2.99) instead of days. Branch names now appear as short codes (e.g., BLR, BOM) for easier readability. The MT column also now shows values with three decimal places for better precision.</li>
                     <li style="margin: 6px 0;"><strong>WT Schedule Fix:</strong> Corrected categorization for (406.4, 21.44) and (406.4, 25.40).</li>
                     <li style="margin: 6px 0;"><strong>Filter Enhancement:</strong> Fixed the Make filter issue in the Incoming tab (no more “No data” errors).</li>
