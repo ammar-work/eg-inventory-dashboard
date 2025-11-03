@@ -1288,6 +1288,12 @@ if data_file is not None:
                         if agg_columns:
                             preview_pivot = preview_pivot.groupby(preview_group_cols).agg(agg_columns).reset_index()
                         
+                        # Ensure all Type columns exist (even if no data) to prevent KeyError during formatting
+                        required_types = ['Stock', 'Incoming', 'Reservations']
+                        for col in required_types:
+                            if col not in preview_pivot.columns:
+                                preview_pivot[col] = 0
+                        
                         # Calculate Free For Sale for each unique product (handle missing columns gracefully)
                         preview_pivot['MT'] = (
                             preview_pivot.get('Stock', 0) - 
@@ -1999,7 +2005,17 @@ if data_file is not None:
             # For all other chart types (Reserved, Incoming, Free for Sale), format MT column to 3 decimal places
             # Also format Stock, Incoming, and Reservations columns to 3 decimal places for Free for Sale
             if size_chart_type == "Free For Sale":
-                df_filtered_display = df_filtered_display.style.format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT', 'Stock', 'Incoming', 'Reservations'])
+                # Check which columns exist before formatting to prevent KeyError
+                available_cols = df_filtered_display.columns
+                od_wt_subset = [col for col in ['OD', 'WT'] if col in available_cols]
+                mt_stock_subset = [col for col in ['MT', 'Stock', 'Incoming', 'Reservations'] if col in available_cols]
+                
+                style_obj = df_filtered_display.style.format(precision=0)
+                if od_wt_subset:
+                    style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
+                if mt_stock_subset:
+                    style_obj = style_obj.format("{:.3f}", subset=mt_stock_subset)
+                df_filtered_display = style_obj
             else:
                 df_filtered_display = df_filtered_display.style.format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT'])
         
@@ -2026,7 +2042,17 @@ if data_file is not None:
         else:
             # For all other chart types, apply formatting
             if size_chart_type == "Free For Sale":
-                df_display_final = df_underlying.style.format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)']).format("{:.3f}", subset=['MT', 'Stock', 'Incoming', 'Reservations'])
+                # Check which columns exist before formatting to prevent KeyError
+                available_cols = df_underlying.columns
+                od_wt_subset = [col for col in ['OD (mm)', 'WT (mm)'] if col in available_cols]
+                mt_stock_subset = [col for col in ['MT', 'Stock', 'Incoming', 'Reservations'] if col in available_cols]
+                
+                style_obj = df_underlying.style.format(precision=0)
+                if od_wt_subset:
+                    style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
+                if mt_stock_subset:
+                    style_obj = style_obj.format("{:.3f}", subset=mt_stock_subset)
+                df_display_final = style_obj
             else:
                 df_display_final = df_underlying.style.format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)']).format("{:.3f}", subset=['MT'])
         
