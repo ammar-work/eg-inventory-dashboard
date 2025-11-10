@@ -1050,6 +1050,9 @@ if data_file is not None:
             # Reset incoming filter when switching away from Incoming
             if 'incoming_filter' in st.session_state:
                 st.session_state.incoming_filter = "ALL INCOMING"
+            # Reset month filter when switching away from Incoming
+            if 'incoming_month_filter' in st.session_state:
+                st.session_state.incoming_month_filter = None
             st.rerun()
     with col2:
         reserved_active = st.button("🔒 Reserved", key="reserved_tab", use_container_width=True,
@@ -1059,6 +1062,9 @@ if data_file is not None:
             # Reset incoming filter when switching away from Incoming
             if 'incoming_filter' in st.session_state:
                 st.session_state.incoming_filter = "ALL INCOMING"
+            # Reset month filter when switching away from Incoming
+            if 'incoming_month_filter' in st.session_state:
+                st.session_state.incoming_month_filter = None
             st.rerun()
     with col3:
         incoming_active = st.button("📥 Incoming", key="incoming_tab", use_container_width=True,
@@ -1074,6 +1080,9 @@ if data_file is not None:
             # Reset incoming filter when switching away from Incoming
             if 'incoming_filter' in st.session_state:
                 st.session_state.incoming_filter = "ALL INCOMING"
+            # Reset month filter when switching away from Incoming
+            if 'incoming_month_filter' in st.session_state:
+                st.session_state.incoming_month_filter = None
             st.rerun()
     
     # Use the session state to determine which tab is active
@@ -1344,6 +1353,15 @@ if data_file is not None:
     
     if not df.empty:
         df_cat = add_categorizations(df.copy())
+        
+        # Parse Delivery_as_on_Date column as datetime for Incoming chart type
+        if size_chart_type == "Incoming" and 'Delivery_as_on_Date' in df_cat.columns:
+            try:
+                # Convert to datetime, handling various formats
+                df_cat['Delivery_as_on_Date'] = pd.to_datetime(df_cat['Delivery_as_on_Date'], errors='coerce')
+            except Exception:
+                # If parsing fails, leave as is
+                pass
 
         # --- Apply Filters ---
         def check_word_boundary_match(data_value, search_spec):
@@ -1561,6 +1579,28 @@ if data_file is not None:
                 
                 # If "ALL INCOMING" is selected, no filtering is applied (show all data)
             
+            # Month Filter - Apply month filter for Incoming chart type based on Delivery_as_on_Date
+            if size_chart_type == "Incoming" and 'Delivery_as_on_Date' in filtered.columns:
+                month_filter = st.session_state.get('incoming_month_filter', None)
+                
+                if month_filter is not None:
+                    # month_filter format: "YYYY-MM" (e.g., "2024-11")
+                    try:
+                        # Extract year and month from the filter
+                        filter_year, filter_month = map(int, month_filter.split('-'))
+                        
+                        # Filter data where Delivery_as_on_Date matches the selected month and year
+                        # Handle NaT (Not a Time) values by excluding them
+                        mask = (
+                            filtered['Delivery_as_on_Date'].notna() &
+                            (filtered['Delivery_as_on_Date'].dt.year == filter_year) &
+                            (filtered['Delivery_as_on_Date'].dt.month == filter_month)
+                        )
+                        filtered = filtered[mask]
+                    except Exception:
+                        # If filtering fails, show all data
+                        pass
+            
             return filtered
 
         df_filtered = apply_filters(df_cat)
@@ -1577,6 +1617,10 @@ if data_file is not None:
             # Initialize session state for incoming filter if not exists
             if 'incoming_filter' not in st.session_state:
                 st.session_state.incoming_filter = "ALL INCOMING"
+            
+            # Initialize session state for month filter if not exists
+            if 'incoming_month_filter' not in st.session_state:
+                st.session_state.incoming_month_filter = None
             
             # Get current incoming filter for button styling
             current_incoming_filter = st.session_state.get('incoming_filter', 'ALL INCOMING')
@@ -1608,7 +1652,79 @@ if data_file is not None:
                     st.session_state.incoming_filter = "FOR CUSTOMERS"
                     st.rerun()
         
-        st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>{size_chart_type} Items Heatmap{incoming_filter_display}</h5>", unsafe_allow_html=True)
+        # --- Month Filter Buttons (only for Incoming chart type) ---
+        if size_chart_type == "Incoming":
+            # Generate 4 upcoming months (current month + next 3 months)
+            current_date = pd.Timestamp.now()
+            months = []
+            for i in range(4):
+                # Add months using pandas DateOffset
+                month_date = current_date + pd.DateOffset(months=i)
+                month_label = f"M{i+1} ({month_date.strftime('%b')})"
+                month_value = month_date.strftime('%Y-%m')  # Format: YYYY-MM
+                month_display = month_date.strftime('%B %Y')
+                month_help = f"Show Incoming Stock for {month_display} month"
+                months.append((month_label, month_value, month_help))
+            
+            # Get current month filter for button styling
+            current_month_filter = st.session_state.get('incoming_month_filter', None)
+            
+            # Create title and month buttons in a row (compact buttons)
+            title_col, m1_col, m2_col, m3_col, m4_col = st.columns([6, 0.7, 0.7, 0.7, 0.7])
+            
+            with title_col:
+                st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>{size_chart_type} Items Heatmap{incoming_filter_display}</h5>", unsafe_allow_html=True)
+            
+            with m1_col:
+                m1_label, m1_value, m1_help = months[0]
+                m1_btn = st.button(m1_label, key="month_filter_m1", use_container_width=True,
+                                  help=m1_help,
+                                  type="primary" if current_month_filter == m1_value else "secondary")
+                if m1_btn:
+                    # Toggle: if already selected, deselect (show all), otherwise select
+                    if current_month_filter == m1_value:
+                        st.session_state.incoming_month_filter = None
+                    else:
+                        st.session_state.incoming_month_filter = m1_value
+                    st.rerun()
+            
+            with m2_col:
+                m2_label, m2_value, m2_help = months[1]
+                m2_btn = st.button(m2_label, key="month_filter_m2", use_container_width=True,
+                                  help=m2_help,
+                                  type="primary" if current_month_filter == m2_value else "secondary")
+                if m2_btn:
+                    if current_month_filter == m2_value:
+                        st.session_state.incoming_month_filter = None
+                    else:
+                        st.session_state.incoming_month_filter = m2_value
+                    st.rerun()
+            
+            with m3_col:
+                m3_label, m3_value, m3_help = months[2]
+                m3_btn = st.button(m3_label, key="month_filter_m3", use_container_width=True,
+                                  help=m3_help,
+                                  type="primary" if current_month_filter == m3_value else "secondary")
+                if m3_btn:
+                    if current_month_filter == m3_value:
+                        st.session_state.incoming_month_filter = None
+                    else:
+                        st.session_state.incoming_month_filter = m3_value
+                    st.rerun()
+            
+            with m4_col:
+                m4_label, m4_value, m4_help = months[3]
+                m4_btn = st.button(m4_label, key="month_filter_m4", use_container_width=True,
+                                  help=m4_help,
+                                  type="primary" if current_month_filter == m4_value else "secondary")
+                if m4_btn:
+                    if current_month_filter == m4_value:
+                        st.session_state.incoming_month_filter = None
+                    else:
+                        st.session_state.incoming_month_filter = m4_value
+                    st.rerun()
+        else:
+            st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>{size_chart_type} Items Heatmap{incoming_filter_display}</h5>", unsafe_allow_html=True)
         metric_col = metric if metric in df_filtered.columns else None
         if metric_col is None:
             metric_col = next((c for c in df_filtered.columns if c.lower() == metric.lower()), None)
