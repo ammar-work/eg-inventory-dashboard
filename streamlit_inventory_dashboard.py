@@ -1196,6 +1196,14 @@ if data_file is not None:
                         all_data_clean['OD'] = pd.to_numeric(all_data_clean['OD'], errors='coerce')
                     if 'WT' in all_data_clean.columns:
                         all_data_clean['WT'] = pd.to_numeric(all_data_clean['WT'], errors='coerce')
+                    
+                    # Fix: Standardize OD/WT precision to avoid duplicate rows in Preview Table
+                    # Round to 3 decimal places to match filter options and prevent floating-point precision mismatches
+                    if 'OD' in all_data_clean.columns:
+                        all_data_clean['OD'] = all_data_clean['OD'].round(3)
+                    if 'WT' in all_data_clean.columns:
+                        all_data_clean['WT'] = all_data_clean['WT'].round(3)
+                    
                     # Convert MT to numeric as well (treat blanks/invalid as 0 for aggregation)
                     if 'MT' in all_data_clean.columns:
                         all_data_clean['MT'] = pd.to_numeric(all_data_clean['MT'], errors='coerce').fillna(0)
@@ -1207,6 +1215,16 @@ if data_file is not None:
                         all_data_clean['Grade'] = all_data_clean['Grade'].astype(str)
                     if 'Specification' in all_data_clean.columns:
                         all_data_clean['Specification'] = all_data_clean['Specification'].astype(str)
+                        
+                    # Normalize Specification column
+                    if 'Specification' in all_data_clean.columns:
+                        # Replace string 'nan' with empty string
+                        all_data_clean['Specification'] = all_data_clean['Specification'].replace('nan', '')
+                        # Strip leading/trailing spaces (e.g., 'STD ' → 'STD')
+                        all_data_clean['Specification'] = all_data_clean['Specification'].str.strip()
+                        # Replace empty strings with None for consistency
+                        all_data_clean['Specification'] = all_data_clean['Specification'].replace('', None)
+
                     
                     # Pivot to get Stock, Reservations, Incoming columns
                     pivot_data = all_data_clean.groupby(group_cols + ['Type'])['MT'].sum().reset_index()
@@ -1265,8 +1283,8 @@ if data_file is not None:
                         
                         # Round OD and WT to avoid floating-point precision issues
                         all_data_rounded = all_data_clean.copy()
-                        all_data_rounded['OD'] = all_data_rounded['OD'].round(2)
-                        all_data_rounded['WT'] = all_data_rounded['WT'].round(2)
+                        all_data_rounded['OD'] = all_data_rounded['OD'].round(3)
+                        all_data_rounded['WT'] = all_data_rounded['WT'].round(3)
                         
                         # Group by unique product identifiers and Type, then sum MT values
                         preview_group_cols = ['OD', 'WT', 'Specification']
