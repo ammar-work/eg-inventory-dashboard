@@ -274,6 +274,66 @@ else:
     error_message = error
 
 # --- Sidebar ---
+# Add "See What's New" button above Controls
+if st.sidebar.button("📢 See What's New", key="whats_new_btn", use_container_width=True):
+    st.session_state.show_whats_new = True
+
+# Show the custom "What's New" popup when button is clicked
+if st.session_state.get('show_whats_new', False):
+    # Create a prominent update notification using Streamlit components
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #4CAF50 0%, #45a049 50%, #2E7D32 100%);
+        padding: 20px;
+        border-radius: 12px;
+        margin: 15px 0;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+        border: 2px solid #1B5E20;
+        max-width: 750px;
+        margin-left: auto;
+        margin-right: auto;
+        position: relative;
+    ">
+        <div style="
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            color: rgba(255,255,255,0.7);
+            font-size: 11px;
+            font-weight: normal;
+        ">
+            14/10/2025
+        </div>
+        <h2 style="color: white; margin: 0 0 15px 0; font-size: 24px; text-align: center;">
+            What's New in Dashboard!
+        </h2>
+        <div style="color: white; font-size: 14px; line-height: 1.5;">
+            <div style="background: rgba(255,255,255,0.15); padding: 16px; border-radius: 10px; margin: 12px 0;">
+                <h3 style="color: #FFD700; margin: 0 0 12px 0; font-size: 18px;">✨ Latest Updates & Improvements</h3>
+                <ul style="margin: 0; padding-left: 18px; font-size: 16px;">
+                    <li style="margin: 6px 0;"><strong>New Visualization:</strong> Added a Product Age bar chart below the Stock Preview table.</li>
+                    <li style="margin: 6px 0;"><strong>Performance Improvement:</strong> Switching between tabs and applying filters is now up to 5× faster.</li>
+                    <li style="margin: 6px 0;"><strong>Stock Preview Table Enhancements:</strong> Product Age is now displayed in years (e.g., 0.19, 2.99) instead of days. Branch names now appear as short codes (e.g., BLR, BOM) for easier readability. The MT column also now shows values with three decimal places for better precision.</li>
+                    <li style="margin: 6px 0;"><strong>WT Schedule Fix:</strong> Corrected categorization for (406.4, 21.44) and (406.4, 25.40).</li>
+                    <li style="margin: 6px 0;"><strong>Filter Enhancement:</strong> Fixed the Make filter issue in the Incoming tab (no more “No data” errors).</li>
+                    <li style="margin: 6px 0;"><strong>Quick Spec Buttons:</strong> The top specification buttons are now responsive and work properly.</li>
+                    <li style="margin: 6px 0;"><strong>Better Labels:</strong> OD and WT filter names now include units (mm, inches) for better clarity.</li>
+                </ul>
+            </div>
+            <div style="text-align: center; margin-top: 12px; font-style: italic; color: #E8F5E8; font-size: 13px;">
+                Thank you!
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Add close button using Streamlit
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        if st.button("Got it! 👍", key="close_modal_btn", use_container_width=True, type="primary"):
+            st.session_state.show_whats_new = False
+            st.rerun()
+
 st.sidebar.header("Controls")
 
 # Show refresh button
@@ -603,6 +663,7 @@ def categorize_WT_schedule(od, wt, grade):
         return "Unknown"
 
 # --- Data Processing Helper ---
+@st.cache_data
 def add_categorizations(df):
     """REAL OPTIMIZATION: Vectorized categorization for 3-5x faster performance"""
     # Add OD_Category and WT_Schedule columns
@@ -752,7 +813,18 @@ branch_options = ["All"]
 
 # Load data and update filter options dynamically
 if data_file is not None:
-    sheets = load_inventory_data(data_file)
+    # Check if we already have processed data in session state
+    file_key = str(data_file.name) if hasattr(data_file, 'name') else str(data_file)
+    
+    if 'processed_sheets' not in st.session_state or st.session_state.get('current_file_key') != file_key:
+        with st.spinner("Processing Data..."):
+            sheets = load_inventory_data(data_file)
+            # Cache the processed data in session state
+            st.session_state.processed_sheets = sheets
+            st.session_state.current_file_key = file_key
+    else:
+        # Use cached data
+        sheets = st.session_state.processed_sheets
     # Collect filter options from all sheets to ensure comprehensive coverage
     all_individual_specs = set()
     
@@ -805,10 +877,48 @@ if data_file is not None:
         
         if all_makes:
             make_options = ["All"] + sorted(list(all_makes))
-        if od_col:
-            od_options = ["All"] + sorted(df[od_col].dropna().unique().astype(str).tolist(), key=lambda x: float(x) if x.replace('.','',1).isdigit() else x)
-        if wt_col:
-            wt_options = ["All"] + sorted(df[wt_col].dropna().unique().astype(str).tolist(), key=lambda x: float(x) if x.replace('.','',1).isdigit() else x)
+        # Collect OD and WT values from all sheets to avoid duplicates
+        all_od_values = set()
+        all_wt_values = set()
+        all_branch_values = set()
+        
+        for sheet_name, sheet_df in sheets.items():
+            if not sheet_df.empty:
+                # Get column names for this sheet
+                sheet_od_col = next((c for c in sheet_df.columns if c.lower() in ["od", "o_d", "outer_diameter"]), None)
+                sheet_wt_col = next((c for c in sheet_df.columns if c.lower() in ["wt", "w_t", "wall_thickness"]), None)
+                sheet_branch_col = next((c for c in sheet_df.columns if c.lower() in ["branch", "location"]), None)
+                
+                # Collect OD values
+                if sheet_od_col:
+                    od_values = sheet_df[sheet_od_col].dropna().unique()
+                    all_od_values.update(od_values)
+                
+                # Collect WT values
+                if sheet_wt_col:
+                    wt_values = sheet_df[sheet_wt_col].dropna().unique()
+                    all_wt_values.update(wt_values)
+                
+                # Collect Branch values
+                if sheet_branch_col:
+                    branch_values = sheet_df[sheet_branch_col].dropna().astype(str).unique()
+                    all_branch_values.update(branch_values)
+        
+        # Set filter options from collected values
+        if all_od_values:
+            # Round to 3 decimal places to avoid floating point precision issues
+            od_rounded = [round(float(x), 3) for x in all_od_values]
+            # Sort numerically, then convert to strings
+            od_options = ["All"] + [str(x) for x in sorted(od_rounded)]
+        
+        if all_wt_values:
+            # Round to 3 decimal places to avoid floating point precision issues
+            wt_rounded = [round(float(x), 3) for x in all_wt_values]
+            # Sort numerically, then convert to strings
+            wt_options = ["All"] + [str(x) for x in sorted(wt_rounded)]
+        
+        if all_branch_values:
+            branch_options = ["All"] + sorted(list(all_branch_values))
         if spec_col:
             # Show all specifications from mapping sheet for consistency
             spec_options = ["All"] + sorted(list(SPECIFICATION_MAPPING.keys()))
@@ -884,15 +994,15 @@ st.sidebar.markdown("**Primary Filter:**")
 # Handle quick access specification selection
 quick_access_spec = st.session_state.get('quick_access_spec', None)
 if quick_access_spec:
-    # If a quick access spec is selected, use only that specification
-    spec_filter_default = [quick_access_spec]
+    # If a quick access spec is selected, set the session state directly
+    st.session_state.sidebar_spec_multiselect = [quick_access_spec]
     # Clear the quick access selection after using it
     st.session_state.quick_access_spec = None
-else:
-    # Use the current session state value or default to "All"
-    spec_filter_default = st.session_state.get('sidebar_spec_multiselect', ["All"])
 
-spec_filter = st.sidebar.multiselect("Specification (Product Name)", spec_options, default=spec_filter_default, 
+# Get the current spec filter from session state
+spec_filter = st.session_state.get('sidebar_spec_multiselect', ["All"])
+
+spec_filter = st.sidebar.multiselect("Specification (Product Name)", spec_options, 
                                     key="sidebar_spec_multiselect",
                                     help="Select specifications to filter. Grade Type is automatically derived from specification names.")
 
@@ -903,13 +1013,13 @@ st.session_state.current_spec_filter = spec_filter
 od_category_options_filtered, wt_category_options_filtered = get_grade_specific_options_from_specs(spec_filter)
 
 st.sidebar.markdown("**Additional Filters:**")
-make_filter = st.sidebar.multiselect("Make", make_options, default=["All"])
-add_spec_filter = st.sidebar.multiselect("Additional Spec", add_spec_options, default=["All"])
-od_category_filter = st.sidebar.multiselect("OD Category", od_category_options_filtered, default=["All"])
-wt_category_filter = st.sidebar.multiselect("WT Category", wt_category_options_filtered, default=["All"])
-od_filter = st.sidebar.multiselect("OD", od_options, default=["All"])
-wt_filter = st.sidebar.multiselect("WT", wt_options, default=["All"])
-branch_filter = st.sidebar.multiselect("Branch", branch_options, default=["All"])
+od_category_filter = st.sidebar.multiselect("OD (Inches)", od_category_options_filtered, default=["All"], key="od_category_filter")
+wt_category_filter = st.sidebar.multiselect("WT Schedule", wt_category_options_filtered, default=["All"], key="wt_category_filter")
+od_filter = st.sidebar.multiselect("OD (mm)", od_options, default=["All"], key="od_filter")
+wt_filter = st.sidebar.multiselect("WT (mm)", wt_options, default=["All"], key="wt_filter")
+add_spec_filter = st.sidebar.multiselect("Additional Spec", add_spec_options, default=["All"], key="add_spec_filter")
+make_filter = st.sidebar.multiselect("Make", make_options, default=["All"], key="make_filter")
+branch_filter = st.sidebar.multiselect("Branch", branch_options, default=["All"], key="branch_filter")
 
 # Show S3 status at the bottom
 if data_file:
@@ -943,6 +1053,9 @@ if data_file is not None:
             # Reset incoming filter when switching away from Incoming
             if 'incoming_filter' in st.session_state:
                 st.session_state.incoming_filter = "ALL INCOMING"
+            # Reset month filter when switching away from Incoming
+            if 'incoming_month_filter' in st.session_state:
+                st.session_state.incoming_month_filter = None
             st.rerun()
     with col2:
         reserved_active = st.button("🔒 Reserved", key="reserved_tab", use_container_width=True,
@@ -952,6 +1065,9 @@ if data_file is not None:
             # Reset incoming filter when switching away from Incoming
             if 'incoming_filter' in st.session_state:
                 st.session_state.incoming_filter = "ALL INCOMING"
+            # Reset month filter when switching away from Incoming
+            if 'incoming_month_filter' in st.session_state:
+                st.session_state.incoming_month_filter = None
             st.rerun()
     with col3:
         incoming_active = st.button("📥 Incoming", key="incoming_tab", use_container_width=True,
@@ -967,6 +1083,9 @@ if data_file is not None:
             # Reset incoming filter when switching away from Incoming
             if 'incoming_filter' in st.session_state:
                 st.session_state.incoming_filter = "ALL INCOMING"
+            # Reset month filter when switching away from Incoming
+            if 'incoming_month_filter' in st.session_state:
+                st.session_state.incoming_month_filter = None
             st.rerun()
     
     with col5:
@@ -1101,6 +1220,14 @@ if data_file is not None:
                         all_data_clean['OD'] = pd.to_numeric(all_data_clean['OD'], errors='coerce')
                     if 'WT' in all_data_clean.columns:
                         all_data_clean['WT'] = pd.to_numeric(all_data_clean['WT'], errors='coerce')
+                    
+                    # Fix: Standardize OD/WT precision to avoid duplicate rows in Preview Table
+                    # Round to 3 decimal places to match filter options and prevent floating-point precision mismatches
+                    if 'OD' in all_data_clean.columns:
+                        all_data_clean['OD'] = all_data_clean['OD'].round(3)
+                    if 'WT' in all_data_clean.columns:
+                        all_data_clean['WT'] = all_data_clean['WT'].round(3)
+                    
                     # Convert MT to numeric as well (treat blanks/invalid as 0 for aggregation)
                     if 'MT' in all_data_clean.columns:
                         all_data_clean['MT'] = pd.to_numeric(all_data_clean['MT'], errors='coerce').fillna(0)
@@ -1112,6 +1239,16 @@ if data_file is not None:
                         all_data_clean['Grade'] = all_data_clean['Grade'].astype(str)
                     if 'Specification' in all_data_clean.columns:
                         all_data_clean['Specification'] = all_data_clean['Specification'].astype(str)
+                        
+                    # Normalize Specification column
+                    if 'Specification' in all_data_clean.columns:
+                        # Replace string 'nan' with empty string
+                        all_data_clean['Specification'] = all_data_clean['Specification'].replace('nan', '')
+                        # Strip leading/trailing spaces (e.g., 'STD ' → 'STD')
+                        all_data_clean['Specification'] = all_data_clean['Specification'].str.strip()
+                        # Replace empty strings with None for consistency
+                        all_data_clean['Specification'] = all_data_clean['Specification'].replace('', None)
+
                     
                     # Pivot to get Stock, Reservations, Incoming columns
                     pivot_data = all_data_clean.groupby(group_cols + ['Type'])['MT'].sum().reset_index()
@@ -1170,8 +1307,8 @@ if data_file is not None:
                         
                         # Round OD and WT to avoid floating-point precision issues
                         all_data_rounded = all_data_clean.copy()
-                        all_data_rounded['OD'] = all_data_rounded['OD'].round(2)
-                        all_data_rounded['WT'] = all_data_rounded['WT'].round(2)
+                        all_data_rounded['OD'] = all_data_rounded['OD'].round(3)
+                        all_data_rounded['WT'] = all_data_rounded['WT'].round(3)
                         
                         # Group by unique product identifiers and Type, then sum MT values
                         preview_group_cols = ['OD', 'WT', 'Specification']
@@ -1201,6 +1338,12 @@ if data_file is not None:
                         
                         if agg_columns:
                             preview_pivot = preview_pivot.groupby(preview_group_cols).agg(agg_columns).reset_index()
+                        
+                        # Ensure all Type columns exist (even if no data) to prevent KeyError during formatting
+                        required_types = ['Stock', 'Incoming', 'Reservations']
+                        for col in required_types:
+                            if col not in preview_pivot.columns:
+                                preview_pivot[col] = 0
                         
                         # Calculate Free For Sale for each unique product (handle missing columns gracefully)
                         preview_pivot['MT'] = (
@@ -1252,6 +1395,15 @@ if data_file is not None:
     
     if not df.empty:
         df_cat = add_categorizations(df.copy())
+        
+        # Parse Delivery_as_on_Date column as datetime for Incoming chart type
+        if size_chart_type == "Incoming" and 'Delivery_as_on_Date' in df_cat.columns:
+            try:
+                # Convert to datetime, handling various formats
+                df_cat['Delivery_as_on_Date'] = pd.to_datetime(df_cat['Delivery_as_on_Date'], errors='coerce')
+            except Exception:
+                # If parsing fails, leave as is
+                pass
 
         # --- Apply Filters ---
         def check_word_boundary_match(data_value, search_spec):
@@ -1469,6 +1621,28 @@ if data_file is not None:
                 
                 # If "ALL INCOMING" is selected, no filtering is applied (show all data)
             
+            # Month Filter - Apply month filter for Incoming chart type based on Delivery_as_on_Date
+            if size_chart_type == "Incoming" and 'Delivery_as_on_Date' in filtered.columns:
+                month_filter = st.session_state.get('incoming_month_filter', None)
+                
+                if month_filter is not None:
+                    # month_filter format: "YYYY-MM" (e.g., "2024-11")
+                    try:
+                        # Extract year and month from the filter
+                        filter_year, filter_month = map(int, month_filter.split('-'))
+                        
+                        # Filter data where Delivery_as_on_Date matches the selected month and year
+                        # Handle NaT (Not a Time) values by excluding them
+                        mask = (
+                            filtered['Delivery_as_on_Date'].notna() &
+                            (filtered['Delivery_as_on_Date'].dt.year == filter_year) &
+                            (filtered['Delivery_as_on_Date'].dt.month == filter_month)
+                        )
+                        filtered = filtered[mask]
+                    except Exception:
+                        # If filtering fails, show all data
+                        pass
+            
             return filtered
 
         df_filtered = apply_filters(df_cat)
@@ -1485,6 +1659,10 @@ if data_file is not None:
             # Initialize session state for incoming filter if not exists
             if 'incoming_filter' not in st.session_state:
                 st.session_state.incoming_filter = "ALL INCOMING"
+            
+            # Initialize session state for month filter if not exists
+            if 'incoming_month_filter' not in st.session_state:
+                st.session_state.incoming_month_filter = None
             
             # Get current incoming filter for button styling
             current_incoming_filter = st.session_state.get('incoming_filter', 'ALL INCOMING')
@@ -1516,7 +1694,79 @@ if data_file is not None:
                     st.session_state.incoming_filter = "FOR CUSTOMERS"
                     st.rerun()
         
-        st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>{size_chart_type} Items Heatmap{incoming_filter_display}</h5>", unsafe_allow_html=True)
+        # --- Month Filter Buttons (only for Incoming chart type) ---
+        if size_chart_type == "Incoming":
+            # Generate 4 upcoming months (current month + next 3 months)
+            current_date = pd.Timestamp.now()
+            months = []
+            for i in range(4):
+                # Add months using pandas DateOffset
+                month_date = current_date + pd.DateOffset(months=i)
+                month_label = f"M{i+1} ({month_date.strftime('%b')})"
+                month_value = month_date.strftime('%Y-%m')  # Format: YYYY-MM
+                month_display = month_date.strftime('%B %Y')
+                month_help = f"Show Incoming Stock for {month_display} month"
+                months.append((month_label, month_value, month_help))
+            
+            # Get current month filter for button styling
+            current_month_filter = st.session_state.get('incoming_month_filter', None)
+            
+            # Create title and month buttons in a row (compact buttons)
+            title_col, m1_col, m2_col, m3_col, m4_col = st.columns([6, 0.7, 0.7, 0.7, 0.7])
+            
+            with title_col:
+                st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>{size_chart_type} Items Heatmap{incoming_filter_display}</h5>", unsafe_allow_html=True)
+            
+            with m1_col:
+                m1_label, m1_value, m1_help = months[0]
+                m1_btn = st.button(m1_label, key="month_filter_m1", use_container_width=True,
+                                  help=m1_help,
+                                  type="primary" if current_month_filter == m1_value else "secondary")
+                if m1_btn:
+                    # Toggle: if already selected, deselect (show all), otherwise select
+                    if current_month_filter == m1_value:
+                        st.session_state.incoming_month_filter = None
+                    else:
+                        st.session_state.incoming_month_filter = m1_value
+                    st.rerun()
+            
+            with m2_col:
+                m2_label, m2_value, m2_help = months[1]
+                m2_btn = st.button(m2_label, key="month_filter_m2", use_container_width=True,
+                                  help=m2_help,
+                                  type="primary" if current_month_filter == m2_value else "secondary")
+                if m2_btn:
+                    if current_month_filter == m2_value:
+                        st.session_state.incoming_month_filter = None
+                    else:
+                        st.session_state.incoming_month_filter = m2_value
+                    st.rerun()
+            
+            with m3_col:
+                m3_label, m3_value, m3_help = months[2]
+                m3_btn = st.button(m3_label, key="month_filter_m3", use_container_width=True,
+                                  help=m3_help,
+                                  type="primary" if current_month_filter == m3_value else "secondary")
+                if m3_btn:
+                    if current_month_filter == m3_value:
+                        st.session_state.incoming_month_filter = None
+                    else:
+                        st.session_state.incoming_month_filter = m3_value
+                    st.rerun()
+            
+            with m4_col:
+                m4_label, m4_value, m4_help = months[3]
+                m4_btn = st.button(m4_label, key="month_filter_m4", use_container_width=True,
+                                  help=m4_help,
+                                  type="primary" if current_month_filter == m4_value else "secondary")
+                if m4_btn:
+                    if current_month_filter == m4_value:
+                        st.session_state.incoming_month_filter = None
+                    else:
+                        st.session_state.incoming_month_filter = m4_value
+                    st.rerun()
+        else:
+            st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>{size_chart_type} Items Heatmap{incoming_filter_display}</h5>", unsafe_allow_html=True)
         
         # Special handling for comparison tab
         if size_chart_type == "Compare Files":
@@ -1525,15 +1775,10 @@ if data_file is not None:
             metric_col = metric if metric in df_filtered.columns else None
             if metric_col is None:
                 metric_col = next((c for c in df_filtered.columns if c.lower() == metric.lower()), None)
+        
         # Ensure metric_col is a single column name (not a list or multiple columns)
         if isinstance(metric_col, list):
             metric_col = metric_col[0] if metric_col else None
-        
-        # Debug: Check metric_col for comparison tab (remove after testing)
-        # if size_chart_type == "Compare Files":
-        #     st.write(f"Debug - metric_col: {metric_col}, type: {type(metric_col)}")
-        #     st.write(f"Debug - df_filtered columns: {list(df_filtered.columns)}")
-        
         if metric_col and not df_filtered.empty:
             # Select correct WT_Schedule list based on derived grade types from specifications
             if not spec_filter or "All" in spec_filter:
@@ -1962,11 +2207,59 @@ if data_file is not None:
             # For all other chart types (Reserved, Incoming, Free for Sale), format MT column to 3 decimal places
             # Also format Stock, Incoming, and Reservations columns to 3 decimal places for Free for Sale
             if size_chart_type == "Free For Sale":
-                df_filtered_display = df_filtered_display.style.format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT', 'Stock', 'Incoming', 'Reservations'])
+                # Check which columns exist before formatting to prevent KeyError
+                available_cols = df_filtered_display.columns
+                od_wt_subset = [col for col in ['OD', 'WT'] if col in available_cols]
+                mt_stock_subset = [col for col in ['MT', 'Stock', 'Incoming', 'Reservations'] if col in available_cols]
+                
+                style_obj = df_filtered_display.style.format(precision=0)
+                if od_wt_subset:
+                    style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
+                if mt_stock_subset:
+                    style_obj = style_obj.format("{:.3f}", subset=mt_stock_subset)
+                df_filtered_display = style_obj
             else:
                 df_filtered_display = df_filtered_display.style.format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT'])
         
-        st.dataframe(df_filtered_display)
+        # Rename columns for better display while preserving styling
+        if hasattr(df_filtered_display, 'data'):
+            # It's a Styler object, get the underlying DataFrame
+            df_underlying = df_filtered_display.data.copy()
+        else:
+            # It's a regular DataFrame
+            df_underlying = df_filtered_display.copy()
+        
+        # Rename columns for display
+        column_mapping = {
+            'OD_Category': 'OD (Inches)',
+            'OD': 'OD (mm)',
+            'WT': 'WT (mm)'
+        }
+        df_underlying.columns = [column_mapping.get(col, col) for col in df_underlying.columns]
+        
+        # Reapply styling to the renamed DataFrame
+        if size_chart_type == "Stock" and 'Product Age' in df_underlying.columns:
+            # Apply color coding for Stock chart type
+            df_display_final = df_underlying.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
+        else:
+            # For all other chart types, apply formatting
+            if size_chart_type == "Free For Sale":
+                # Check which columns exist before formatting to prevent KeyError
+                available_cols = df_underlying.columns
+                od_wt_subset = [col for col in ['OD (mm)', 'WT (mm)'] if col in available_cols]
+                mt_stock_subset = [col for col in ['MT', 'Stock', 'Incoming', 'Reservations'] if col in available_cols]
+                
+                style_obj = df_underlying.style.format(precision=0)
+                if od_wt_subset:
+                    style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
+                if mt_stock_subset:
+                    style_obj = style_obj.format("{:.3f}", subset=mt_stock_subset)
+                df_display_final = style_obj
+            else:
+                df_display_final = df_underlying.style.format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)']).format("{:.3f}", subset=['MT'])
+        
+        with st.spinner("Generating Table..."):
+            st.dataframe(df_display_final)
         
         # Add Product Age bar chart for Stock chart type only
         if size_chart_type == "Stock" and 'Product Age' in df_filtered_display.data.columns:
