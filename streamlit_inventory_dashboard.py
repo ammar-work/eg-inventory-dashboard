@@ -1107,7 +1107,7 @@ if data_file is not None:
         st.session_state.quick_access_spec = None
     
     # Popular specifications for quick access
-    popular_specs = ["CSSMP106B", "ASSMPP9", "ASSMPP11", "ASSMPP22"]
+    popular_specs = ["CSSMP106B", "ASSMPP5", "ASSMPP9", "ASSMPP11", "ASSMPP22"]
     
     # Create quick access buttons
     st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
@@ -1128,6 +1128,14 @@ if data_file is not None:
             st.rerun()
     
     with qcol2:
+        assmpp5_btn = st.button("ASSMPP5", key="assmpp5_btn", use_container_width=True,
+                                help="Quick access to ASSMPP5 specification",
+                                type="primary" if "ASSMPP5" in current_spec_filter and "All" not in current_spec_filter else "secondary")
+        if assmpp5_btn:
+            st.session_state.quick_access_spec = "ASSMPP5"
+            st.rerun()
+    
+    with qcol3:
         assmpp9_btn = st.button("ASSMPP9", key="assmpp9_btn", use_container_width=True,
                                  help="Quick access to ASSMPP9 specification",
                                  type="primary" if "ASSMPP9" in current_spec_filter and "All" not in current_spec_filter else "secondary")
@@ -1135,7 +1143,7 @@ if data_file is not None:
             st.session_state.quick_access_spec = "ASSMPP9"
             st.rerun()
     
-    with qcol3:
+    with qcol4:
         assmpp11_btn = st.button("ASSMPP11", key="assmpp11_btn", use_container_width=True,
                                 help="Quick access to ASSMPP11 specification",
                                 type="primary" if "ASSMPP11" in current_spec_filter and "All" not in current_spec_filter else "secondary")
@@ -1143,18 +1151,14 @@ if data_file is not None:
             st.session_state.quick_access_spec = "ASSMPP11"
             st.rerun()
     
-    with qcol4:
+    with qcol5:
         assmpp22_btn = st.button("ASSMPP22", key="assmpp22_btn", use_container_width=True,
                                 help="Quick access to ASSMPP22 specification",
                                 type="primary" if "ASSMPP22" in current_spec_filter and "All" not in current_spec_filter else "secondary")
         if assmpp22_btn:
             st.session_state.quick_access_spec = "ASSMPP22"
             st.rerun()
-    
-    with qcol5:
-        # Empty column for spacing - could add another quick access button here if needed
-        pass
-    
+
     # Add minimal spacing
     st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
     
@@ -1766,7 +1770,11 @@ if data_file is not None:
                         st.session_state.incoming_month_filter = m4_value
                     st.rerun()
         else:
-            st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>{size_chart_type} Items Heatmap{incoming_filter_display}</h5>", unsafe_allow_html=True)
+            # Add "(In MT)" suffix for Compare Files tab
+            heatmap_title = f"{size_chart_type} Items Heatmap"
+            if size_chart_type == "Compare Files":
+                heatmap_title = f"{size_chart_type} Items Heatmap (In MT)"
+            st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>{heatmap_title}{incoming_filter_display}</h5>", unsafe_allow_html=True)
         
         # Special handling for comparison tab
         if size_chart_type == "Compare Files":
@@ -1868,8 +1876,26 @@ if data_file is not None:
                 
                 # Handle negative values with red coloring
                 if val < 0:
-                    # Single red color for all negative values
-                    return "background-color: #DC143C; color: #FFFFFF; font-weight: bold;"
+                    if size_chart_type == "Compare Files":
+                        red_colors = [
+                            "#FFF0F0", "#FFE0E0", "#FFC1C1", "#FFA3A3", "#FF8585",
+                            "#FF6666", "#D14848", "#8B2E2E", "#601F1F", "#5A2E2E"
+                        ]
+                        negative_vals = numeric_no_totals[numeric_no_totals < 0]
+                        if not negative_vals.empty:
+                            neg_min = negative_vals.min().min()
+                            neg_max = negative_vals.max().max()
+                            if neg_min < neg_max:
+                                idx = int((val - neg_max) / (neg_min - neg_max) * (len(red_colors) - 1))
+                            else:
+                                idx = len(red_colors) - 1
+                        else:
+                            idx = 0
+                        idx = max(0, min(idx, len(red_colors) - 1))
+                        text_color = "#FFFFFF" if idx >= 7 else "#222"
+                        return f"background-color: {red_colors[idx]}; color: {text_color}; font-weight: bold;"
+                    else:
+                        return "background-color: #DC143C; color: #FFFFFF; font-weight: bold;"
                 
                 # Greens scale (10 steps) - Lighter darkest green for better readability
                 colors = [
@@ -1936,7 +1962,22 @@ if data_file is not None:
 
         # --- Preview Data Table ---
         st.markdown("<hr style='margin: 20px 0 10px 0; border: 1px solid #ddd;'>", unsafe_allow_html=True)
-        st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>Preview: {size_chart_type} Data{incoming_filter_display}</h5>", unsafe_allow_html=True)
+        status_filter = None
+        if size_chart_type == "Compare Files":
+            header_col, status_col = st.columns([5, 1.5])
+            with header_col:
+                st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>Preview: {size_chart_type} Data</h5>", unsafe_allow_html=True)
+            with status_col:
+                if 'Status' in df_filtered.columns:
+                    status_filter = st.selectbox(
+                        "Filter by Status:",
+                        ["All", "Added", "Removed", "Increased", "Decreased", "Unchanged"],
+                        key="main_dashboard_status_filter"
+                    )
+                else:
+                    st.empty()
+        else:
+            st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>Preview: {size_chart_type} Data{incoming_filter_display}</h5>", unsafe_allow_html=True)
         
         # Use preview data for Free For Sale, otherwise use filtered data
         if size_chart_type == "Free For Sale":
@@ -1999,24 +2040,10 @@ if data_file is not None:
                     # Apply the formatting to the Delivery_as_on_Date column
                     df_filtered_display['Delivery_as_on_Date'] = df_filtered_display['Delivery_as_on_Date'].apply(format_date)
         elif size_chart_type == "Compare Files":
-            # Special handling for comparison data - add status filter and color coding
-            if 'Status' in df_filtered.columns:
-                # Add status filter above the table
-                status_filter = st.selectbox(
-                    "Filter by Status:",
-                    ["All", "Added", "Removed", "Increased", "Decreased", "Unchanged"],
-                    key="main_dashboard_status_filter"
-                )
-                
-                # Apply status filter
-                if status_filter != "All":
-                    df_filtered = df_filtered[df_filtered['Status'] == status_filter]
-                
-                st.write(f"Filtered rows: {len(df_filtered)}")
-                df_filtered_display = df_filtered.reset_index(drop=True)
-            else:
-                st.write(f"Filtered rows: {len(df_filtered)}")
-                df_filtered_display = df_filtered.reset_index(drop=True)
+            if status_filter and status_filter != "All":
+                df_filtered = df_filtered[df_filtered['Status'] == status_filter]
+            st.write(f"Filtered rows: {len(df_filtered)}")
+            df_filtered_display = df_filtered.reset_index(drop=True)
         else:
             st.write(f"Filtered rows: {len(df_filtered)}")
             df_filtered_display = df_filtered.reset_index(drop=True)
@@ -2188,21 +2215,11 @@ if data_file is not None:
             # Format OD, WT, and Age (In Years) columns to 2 decimal places and MT column to 3 decimal places
             df_filtered_display = df_filtered_display.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
         elif size_chart_type == "Compare Files":
-            # Special formatting for comparison tab - add color coding by status and format numbers
-            def color_rows_by_status(row):
-                status = row['Status']
-                if status == 'Added':
-                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)  # Light green
-                elif status == 'Removed':
-                    return ['background-color: #FFEBEE; color: #000000;'] * len(row)  # Light red
-                elif status == 'Increased':
-                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)  # Light green
-                elif status == 'Decreased':
-                    return ['background-color: #FFF3E0; color: #000000;'] * len(row)  # Light orange
-                else:  # Unchanged
-                    return [''] * len(row)
-            
-            df_filtered_display = df_filtered_display.style.apply(color_rows_by_status, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['Change in Stock'])
+            # Remove additional columns from preview display (keep them in underlying data for filters)
+            display_exclusions = ['Add_Spec', 'Make', 'Branch']
+            existing_exclusions = [col for col in display_exclusions if col in df_filtered_display.columns]
+            if existing_exclusions:
+                df_filtered_display = df_filtered_display.drop(columns=existing_exclusions)
         else:
             # For all other chart types (Reserved, Incoming, Free for Sale), format MT column to 3 decimal places
             # Also format Stock, Incoming, and Reservations columns to 3 decimal places for Free for Sale
@@ -2241,6 +2258,45 @@ if data_file is not None:
         if size_chart_type == "Stock" and 'Product Age' in df_underlying.columns:
             # Apply color coding for Stock chart type
             df_display_final = df_underlying.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
+        elif size_chart_type == "Compare Files":
+            # Apply color coding and numeric formatting for comparison data
+            def color_rows_by_status(row):
+                status = row['Status']
+                if status == 'Added':
+                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)
+                elif status == 'Removed':
+                    return ['background-color: #FCE4EC; color: #000000;'] * len(row)
+                elif status == 'Increased':
+                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)
+                elif status == 'Decreased':
+                    return ['background-color: #FCE4EC; color: #000000;'] * len(row)
+                else:  # Unchanged
+                    return ['background-color: #FFF8E1; color: #000000;'] * len(row)
+
+            def positive_with_sign(value):
+                try:
+                    numeric_value = float(value)
+                except (TypeError, ValueError):
+                    return value
+                if numeric_value > 0:
+                    return f"+{numeric_value:.3f}"
+                elif numeric_value == 0:
+                    return "0.000"
+                else:
+                    return f"{numeric_value:.3f}"
+
+            od_wt_subset = [col for col in ['OD (mm)', 'WT (mm)'] if col in df_underlying.columns]
+            file_mt_subset = [col for col in df_underlying.columns if col.startswith('MT (')]
+            change_subset = [col for col in ['Change in Stock'] if col in df_underlying.columns]
+
+            style_obj = df_underlying.style.apply(color_rows_by_status, axis=1)
+            if od_wt_subset:
+                style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
+            if file_mt_subset:
+                style_obj = style_obj.format("{:.3f}", subset=file_mt_subset)
+            if change_subset:
+                style_obj = style_obj.format(positive_with_sign, subset=change_subset)
+            df_display_final = style_obj
         else:
             # For all other chart types, apply formatting
             if size_chart_type == "Free For Sale":

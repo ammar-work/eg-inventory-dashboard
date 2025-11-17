@@ -422,7 +422,8 @@ def list_available_files_from_s3(prefix=None):
                     if key_lower.endswith(".xlsx") or key_lower.endswith(".xlsm"):
                         filename = obj['Key'].split('/')[-1]
                         upload_date = obj['LastModified'].strftime('%Y-%m-%d')
-                        label = f"{filename} ({upload_date})"
+                        # Show only the date as label (for Compare Files tab dropdown)
+                        label = upload_date
                         files.append({
                             "key": obj['Key'],
                             "label": label,
@@ -447,6 +448,12 @@ def list_available_files_from_s3(prefix=None):
 
         # Sort by upload date (newest first)
         xlsx_files.sort(key=lambda x: x['last_modified'], reverse=True)
+        
+        # Always show Date+Time for all files for consistency
+        for file_info in xlsx_files:
+            date = file_info['uploaded_at']
+            time_str = file_info['last_modified'].strftime('%H:%M')
+            file_info['label'] = f"{date} {time_str}"
 
         return xlsx_files, None
 
@@ -487,15 +494,12 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
     Create comparison data by aligning and comparing two inventory datasets.
     """
     try:
-        # Create unique identifiers for each product (Specification + OD + WT + Make + Branch + Add_Spec)
+        # Create unique identifiers for each product (Specification + OD + WT)
         def create_product_key(row):
             spec = str(row.get('Specification', '')).strip()
             od = str(row.get('OD', '')).strip()
             wt = str(row.get('WT', '')).strip()
-            make = str(row.get('Make', '')).strip()
-            branch = str(row.get('Branch', '')).strip()
-            add_spec = str(row.get('Add_Spec', '')).strip()
-            return f"{spec}|{od}|{wt}|{make}|{branch}|{add_spec}"
+            return f"{spec}|{od}|{wt}"
         
         # Add product keys to both datasets
         file1_data['product_key'] = file1_data.apply(create_product_key, axis=1)
@@ -518,9 +522,12 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
             file1_rows = file1_data[file1_data['product_key'] == key]
             file2_rows = file2_data[file2_data['product_key'] == key]
             
+            has_file1 = not file1_rows.empty
+            has_file2 = not file2_rows.empty
+
             # Aggregate MT values for identical products (sum all MT values for same product key)
-            mt1 = file1_rows['mt_file1'].sum() if not file1_rows.empty else None
-            mt2 = file2_rows['mt_file2'].sum() if not file2_rows.empty else None
+            mt1 = file1_rows['mt_file1'].sum() if has_file1 else 0.0
+            mt2 = file2_rows['mt_file2'].sum() if has_file2 else 0.0
             
             # Calculate delta: New Sheet - Previous Sheet
             # Positive = Stock increased (Green)
@@ -528,22 +535,24 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
             # Zero = No change (Yellow) - only when both sheets have data
             # None = No data in either sheet (White)
             
-            if mt1 is None and mt2 is None:
+            if not has_file1 and not has_file2:
                 # No data in either sheet - skip this item (don't include in heatmap)
                 continue
-            elif mt1 is None and mt2 is not None:
+            elif not has_file1 and has_file2:
                 # Added item - stock increased from 0 to positive value
-                delta = mt2
+                delta = float(mt2)
                 status = "Added"
                 base_row = file2_rows.iloc[0]  # Use first row from file2 for base data
-            elif mt1 is not None and mt2 is None:
+                is_zero_difference = False
+            elif has_file1 and not has_file2:
                 # Removed item - stock decreased from positive value to 0
-                delta = -mt1
+                delta = -float(mt1)
                 status = "Removed"
                 base_row = file1_rows.iloc[0]  # Use first row from file1 for base data
+                is_zero_difference = False
             else:
                 # Both sheets have data - determine status based on change direction
-                delta = mt2 - mt1
+                delta = float(mt2) - float(mt1)
                 if delta > 0:
                     status = "Increased"
                 elif delta < 0:
@@ -559,9 +568,9 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
             row_data = {
                 'product_key': key,
                 'status': status,
-                'old_stock': mt1,
-                'new_stock': mt2,
-                'delta': delta,
+                'old_stock': float(mt1) if has_file1 else 0.0,
+                'new_stock': float(mt2) if has_file2 else 0.0,
+                'delta': float(delta),
                 'file1_name': file1_name,
                 'file2_name': file2_name,
                 'is_zero_difference': is_zero_difference if 'is_zero_difference' in locals() else False
@@ -576,200 +585,31 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
             
             comparison_data.append(row_data)
         
-        return pd.DataFrame(comparison_data)
+        comparison_df = pd.DataFrame(comparison_data)
+        
+        if not comparison_df.empty:
+            # Ensure numeric columns are properly typed and rounded
+            numeric_cols = ['old_stock', 'new_stock', 'delta']
+            for col in numeric_cols:
+                comparison_df[col] = pd.to_numeric(comparison_df[col], errors='coerce').fillna(0.0).round(3)
+
+            # Normalize OD and WT for consistent filtering/grouping
+            comparison_df['OD'] = pd.to_numeric(comparison_df['OD'], errors='coerce')
+            comparison_df['WT'] = pd.to_numeric(comparison_df['WT'], errors='coerce')
+            if 'OD' in comparison_df.columns:
+                comparison_df['OD'] = comparison_df['OD'].round(3)
+            if 'WT' in comparison_df.columns:
+                comparison_df['WT'] = comparison_df['WT'].round(3)
+
+            # Recalculate categorizations to avoid stale "Unknown" values
+            comparison_df = comparison_df.drop(columns=['OD_Category', 'WT_Schedule'], errors='ignore')
+            comparison_df = add_categorizations(comparison_df)
+        
+        return comparison_df
         
     except Exception as e:
         st.error(f"Error creating comparison data: {e}")
         return pd.DataFrame()
-
-
-def display_comparison_results(comparison_data, file1_name, file2_name):
-    """
-    Display comparison results with heatmap and detailed table.
-    """
-    try:
-        # Summary statistics
-        total_products = len(comparison_data)
-        added_products = len(comparison_data[comparison_data['status'] == 'Added'])
-        removed_products = len(comparison_data[comparison_data['status'] == 'Removed'])
-        increased_products = len(comparison_data[comparison_data['status'] == 'Increased'])
-        decreased_products = len(comparison_data[comparison_data['status'] == 'Decreased'])
-        unchanged_products = len(comparison_data[comparison_data['status'] == 'Unchanged'])
-        
-        # Display summary
-        col1, col2, col3, col4, col5 = st.columns(5)
-        
-        with col1:
-            st.metric("Total Products", total_products)
-        with col2:
-            st.metric("Added", added_products, delta=f"+{added_products}")
-        with col3:
-            st.metric("Removed", removed_products, delta=f"-{removed_products}")
-        with col4:
-            st.metric("Increased", increased_products, delta=f"+{increased_products}")
-        with col5:
-            st.metric("Decreased", decreased_products, delta=f"-{decreased_products}")
-        
-        # Add a second row for Unchanged
-        col6, col7, col8, col9, col10 = st.columns(5)
-        with col6:
-            st.metric("Unchanged", unchanged_products)
-        
-        # Create heatmap for delta changes
-        if not comparison_data.empty and 'OD_Category' in comparison_data.columns and 'WT_Schedule' in comparison_data.columns:
-            st.markdown("### 📊 Stock Change Heatmap")
-            
-            # Filter out added/removed products for heatmap (only show changed/unchanged)
-            heatmap_data = comparison_data[comparison_data['status'].isin(['Changed', 'Unchanged'])]
-            
-            if not heatmap_data.empty:
-                # Create pivot table for heatmap
-                pivot_data = heatmap_data.groupby(['OD_Category', 'WT_Schedule'])['delta'].sum().reset_index()
-                
-                # Create pivot table
-                pivot = pivot_data.pivot(index='OD_Category', columns='WT_Schedule', values='delta').fillna(0)
-                
-                # Add totals
-                pivot['Total'] = pivot.sum(axis=1)
-                col_total = pivot.sum(axis=0)
-                col_total.name = 'Total'
-                pivot = pd.concat([pivot, col_total.to_frame().T])
-                
-                # Format values
-                pivot = pivot.round(2)
-                
-                # Color coding for heatmap
-                def highlight_delta(val):
-                    if pd.isna(val) or val == 0:
-                        return "background-color: #FFFFFF; color: #CCCCCC;"
-                    elif val > 0:
-                        # Green for positive changes
-                        intensity = min(abs(val) / pivot[pivot != 0].abs().max().max(), 1) if not pivot[pivot != 0].empty else 0
-                        green_intensity = int(255 * (0.3 + 0.7 * intensity))
-                        return f"background-color: #00{green_intensity:02x}00; color: #FFFFFF; font-weight: bold;"
-                    else:
-                        # Red for negative changes
-                        intensity = min(abs(val) / pivot[pivot != 0].abs().max().max(), 1) if not pivot[pivot != 0].empty else 0
-                        red_intensity = int(255 * (0.3 + 0.7 * intensity))
-                        return f"background-color: #{red_intensity:02x}0000; color: #FFFFFF; font-weight: bold;"
-                
-                # Apply styling
-                styled_pivot = pivot.style.applymap(highlight_delta)
-                st.dataframe(styled_pivot, use_container_width=True)
-            else:
-                st.info("No data available for heatmap (only added/removed products).")
-        
-        # Add a button to clear comparison data
-        if st.button("🗑️ Clear Comparison Data", help="Clear all comparison data and start fresh"):
-            if 'comparison_data' in st.session_state:
-                del st.session_state.comparison_data
-            if 'comparison_file1_name' in st.session_state:
-                del st.session_state.comparison_file1_name
-            if 'comparison_file2_name' in st.session_state:
-                del st.session_state.comparison_file2_name
-            if 'comparison_zero_differences' in st.session_state:
-                del st.session_state.comparison_zero_differences
-            st.rerun()
-        
-        # Detailed comparison table
-        st.markdown("### 📋 Detailed Comparison Table")
-        
-        # Filter and display data based on status
-        status_filter = st.selectbox(
-            "Filter by Status:",
-            ["All", "Added", "Removed", "Increased", "Decreased", "Unchanged"],
-            key="comparison_status_filter"
-        )
-        
-        if status_filter != "All":
-            filtered_data = comparison_data[comparison_data['status'] == status_filter]
-        else:
-            filtered_data = comparison_data
-        
-        if not filtered_data.empty:
-            # Prepare display data
-            display_data = filtered_data.copy()
-            
-            # Debug: Show available columns (remove this after testing)
-            # st.write("Debug - Available columns:", list(display_data.columns))
-            # st.write("Debug - Sample data:", display_data.head(2))
-            
-            # Get file names for column renaming
-            file1_name = st.session_state.get('comparison_file1_name', 'File 1')
-            file2_name = st.session_state.get('comparison_file2_name', 'File 2')
-            
-            # Extract dates from file names (assuming format: "filename (YYYY-MM-DD)")
-            import re
-            file1_date = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file1_name)
-            file2_date = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file2_name)
-            
-            file1_date_str = file1_date.group(1) if file1_date else "Unknown"
-            file2_date_str = file2_date.group(1) if file2_date else "Unknown"
-            
-            # Format stock values to 3 decimal places
-            display_data['old_stock'] = display_data['old_stock'].apply(lambda x: round(float(x), 3) if pd.notna(x) and x is not None else x)
-            display_data['new_stock'] = display_data['new_stock'].apply(lambda x: round(float(x), 3) if pd.notna(x) and x is not None else x)
-            
-            # Ensure proper display formatting
-            display_data['old_stock'] = display_data['old_stock'].apply(lambda x: f"{x:.3f}" if pd.notna(x) and x is not None else x)
-            display_data['new_stock'] = display_data['new_stock'].apply(lambda x: f"{x:.3f}" if pd.notna(x) and x is not None else x)
-            
-            # Rename columns for better display
-            display_data = display_data.rename(columns={
-                'old_stock': f'({file1_date_str}) sheet data',
-                'new_stock': f'({file2_date_str}) sheet data',
-                'delta': 'Change in Stock',
-                'status': 'Status'
-            })
-            
-            # Remove internal columns and file name columns
-            columns_to_remove = ['product_key', 'is_zero_difference', 'file1_name', 'file2_name']
-            existing_columns_to_remove = [col for col in columns_to_remove if col in display_data.columns]
-            if existing_columns_to_remove:
-                display_data = display_data.drop(columns=existing_columns_to_remove)
-            
-            # Define the desired column order - use Add_Spec (with underscore) like in Stock chart type
-            desired_columns = [
-                'Specification', 'Grade', 'OD', 'WT', 'Add_Spec', 'OD_Category', 'WT_Schedule',
-                f'({file1_date_str}) sheet data', f'({file2_date_str}) sheet data', 'Change in Stock', 'Status',
-                'Make', 'Branch'
-            ]
-            
-            # Reorder columns - only include columns that exist in the dataframe
-            available_columns = [col for col in desired_columns if col in display_data.columns]
-            display_data = display_data[available_columns]
-            
-            # Debug: Show final columns (remove this after testing)
-            # st.write("Debug - Final columns:", list(display_data.columns))
-            
-            # Add row numbers
-            display_data.index = range(1, len(display_data) + 1)
-            display_data.index.name = 'Row #'
-            
-            # Color code rows based on status
-            def color_rows_by_status(row):
-                status = row['Status']
-                if status == 'Added':
-                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)  # Light green
-                elif status == 'Removed':
-                    return ['background-color: #FFEBEE; color: #000000;'] * len(row)  # Light red
-                elif status == 'Increased':
-                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)  # Light green (same as Added)
-                elif status == 'Decreased':
-                    return ['background-color: #FFF3E0; color: #000000;'] * len(row)  # Light orange
-                else:  # Unchanged
-                    return [''] * len(row)
-            
-            # Apply styling
-            styled_data = display_data.style.apply(color_rows_by_status, axis=1)
-            st.dataframe(styled_data, use_container_width=True)
-            
-            st.write(f"Showing {len(filtered_data)} products (filtered by: {status_filter})")
-        else:
-            st.info(f"No products found with status: {status_filter}")
-            
-    except Exception as e:
-        st.error(f"Error displaying comparison results: {e}")
 
 
 def render_comparison_tab():
@@ -787,92 +627,228 @@ def render_comparison_tab():
     elif not available_files:
         st.warning("📁 No Excel files found in S3 bucket.")
     else:
+        # Initialize session state for persisted selections
+        if 'compare_file1_selection' not in st.session_state:
+            st.session_state.compare_file1_selection = None
+        if 'compare_file2_selection' not in st.session_state:
+            st.session_state.compare_file2_selection = None
+        
+        # Check if stored selections are still available (handle case where files were deleted from S3)
+        file1_options = [f["label"] for f in available_files]
+        file2_options = [f["label"] for f in available_files]
+        
+        if st.session_state.compare_file1_selection and st.session_state.compare_file1_selection not in file1_options:
+            # Stored file 1 is no longer available, clear it
+            st.session_state.compare_file1_selection = None
+            if 'comparison_data' in st.session_state:
+                del st.session_state.comparison_data
+            if 'comparison_file1_name' in st.session_state:
+                del st.session_state.comparison_file1_name
+        
+        if st.session_state.compare_file2_selection and st.session_state.compare_file2_selection not in file2_options:
+            # Stored file 2 is no longer available, clear it
+            st.session_state.compare_file2_selection = None
+            if 'comparison_data' in st.session_state:
+                del st.session_state.comparison_data
+            if 'comparison_file2_name' in st.session_state:
+                del st.session_state.comparison_file2_name
+        
         # Create two columns for file selection
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("**Select First File:**")
-            file1_options = [f["label"] for f in available_files]
+            # Use stored selection as default if available and still in options
+            file1_default = None
+            file1_default_index = 0
+            if st.session_state.compare_file1_selection and st.session_state.compare_file1_selection in file1_options:
+                file1_default = st.session_state.compare_file1_selection
+                file1_default_index = file1_options.index(file1_default)
             file1_selection = st.selectbox(
-                "File 1", 
+                "Select Date 1:", 
                 options=file1_options,
+                index=file1_default_index,
                 key="file1_comparison",
-                help="Select the first file to compare"
+                help="Select the first (older) date to compare"
             )
         
         with col2:
-            st.markdown("**Select Second File:**")
-            file2_options = [f["label"] for f in available_files]
+            # Use stored selection as default if available and still in options
+            file2_default = None
+            file2_default_index = 0
+            if st.session_state.compare_file2_selection and st.session_state.compare_file2_selection in file2_options:
+                file2_default = st.session_state.compare_file2_selection
+                file2_default_index = file2_options.index(file2_default)
             file2_selection = st.selectbox(
-                "File 2", 
+                "Select Date 2:", 
                 options=file2_options,
+                index=file2_default_index,
                 key="file2_comparison",
-                help="Select the second file to compare"
+                help="Select the second (newer) date to compare"
             )
+        
+        # Check if selections have changed
+        selections_changed = (
+            file1_selection != st.session_state.compare_file1_selection or
+            file2_selection != st.session_state.compare_file2_selection
+        )
+        
+        # Check if we have valid cached comparison data that matches current selections
+        # We'll validate this after auto-sort, so we know the correct file order
+        has_cached_data = False
+        if ('comparison_data' in st.session_state and 
+            not st.session_state.comparison_data.empty and
+            st.session_state.get('comparison_file1_name') and
+            st.session_state.get('comparison_file2_name')):
+            # We'll validate the cached data matches after we determine the auto-sorted file names
+            # This will be checked later in the code after auto-sort
+            has_cached_data = True
         
         # Find the selected files
         file1_data = None
         file2_data = None
         
         if file1_selection and file2_selection:
-            # Find the file keys for selected files
+            # Find the file keys and timestamps for selected files
             file1_key = None
             file2_key = None
+            file1_timestamp = None
+            file2_timestamp = None
             
             for file_info in available_files:
                 if file_info["label"] == file1_selection:
                     file1_key = file_info["key"]
+                    file1_timestamp = file_info["last_modified"]
                 if file_info["label"] == file2_selection:
                     file2_key = file_info["key"]
+                    file2_timestamp = file_info["last_modified"]
             
             if file1_key and file2_key and file1_key != file2_key:
-                # Read both files from S3 (read-only access)
-                with st.spinner("Loading files for comparison..."):
-                    file1_data, file1_date, file1_error = get_file_from_s3_by_key(file1_key)
-                    file2_data, file2_date, file2_error = get_file_from_s3_by_key(file2_key)
-                    
-                    if file1_error:
-                        st.error(f"❌ Error loading first file: {file1_error}")
-                    elif file2_error:
-                        st.error(f"❌ Error loading second file: {file2_error}")
+                # Auto-sort: Ensure File 1 is older than File 2
+                files_were_swapped = False
+                original_file1_selection = file1_selection
+                original_file2_selection = file2_selection
+                
+                if file1_timestamp and file2_timestamp:
+                    if file1_timestamp > file2_timestamp:
+                        # File 1 is newer than File 2, swap them
+                        file1_selection, file2_selection = file2_selection, file1_selection
+                        file1_key, file2_key = file2_key, file1_key
+                        file1_timestamp, file2_timestamp = file2_timestamp, file1_timestamp
+                        files_were_swapped = True
+                
+                # Show info message if files were auto-sorted
+                if files_were_swapped:
+                    st.info("ℹ️ Files automatically sorted chronologically: File 1 (older) → File 2 (newer)")
+                
+                # Validate cached data matches the auto-sorted file names
+                cached_data_valid = False
+                if has_cached_data:
+                    cached_file1 = st.session_state.get('comparison_file1_name')
+                    cached_file2 = st.session_state.get('comparison_file2_name')
+                    # Check if cached data matches the auto-sorted file names
+                    if cached_file1 == file1_selection and cached_file2 == file2_selection:
+                        cached_data_valid = True
                     else:
-                        # Process both files
-                        try:
-                            # Load inventory data from both files
-                            file1_sheets = load_inventory_data(file1_data)
-                            file2_sheets = load_inventory_data(file2_data)
-                            
-                            # Get Stock data from both files
-                            file1_stock = file1_sheets.get("Stock", pd.DataFrame())
-                            file2_stock = file2_sheets.get("Stock", pd.DataFrame())
-                            
-                            if not file1_stock.empty and not file2_stock.empty:
-                                # Add categorizations to both datasets
-                                file1_filtered = add_categorizations(file1_stock.copy())
-                                file2_filtered = add_categorizations(file2_stock.copy())
+                        # Cached data doesn't match, need to reload
+                        cached_data_valid = False
+                
+                # Check if we need to reload files (only if selections changed or cached data is invalid)
+                need_to_reload = selections_changed or not cached_data_valid
+                
+                if need_to_reload:
+                    # Clear old comparison data if selections changed
+                    if selections_changed:
+                        if 'comparison_data' in st.session_state:
+                            del st.session_state.comparison_data
+                        if 'comparison_file1_name' in st.session_state:
+                            del st.session_state.comparison_file1_name
+                        if 'comparison_file2_name' in st.session_state:
+                            del st.session_state.comparison_file2_name
+                    
+                    # Read both files from S3 (read-only access)
+                    with st.spinner("Processing..."):
+                        file1_data, file1_date, file1_error = get_file_from_s3_by_key(file1_key)
+                        file2_data, file2_date, file2_error = get_file_from_s3_by_key(file2_key)
+                        
+                        if file1_error:
+                            st.error(f"❌ Error loading first file: {file1_error}")
+                            # Clear stored selections on error
+                            st.session_state.compare_file1_selection = None
+                            st.session_state.compare_file2_selection = None
+                        elif file2_error:
+                            st.error(f"❌ Error loading second file: {file2_error}")
+                            # Clear stored selections on error
+                            st.session_state.compare_file1_selection = None
+                            st.session_state.compare_file2_selection = None
+                        else:
+                            # Process both files
+                            try:
+                                # Load inventory data from both files
+                                file1_sheets = load_inventory_data(file1_data)
+                                file2_sheets = load_inventory_data(file2_data)
                                 
-                                # Create comparison data
-                                comparison_data = create_comparison_data(file1_filtered, file2_filtered, file1_selection, file2_selection)
+                                # Get Stock data from both files
+                                file1_stock = file1_sheets.get("Stock", pd.DataFrame())
+                                file2_stock = file2_sheets.get("Stock", pd.DataFrame())
                                 
-                                if not comparison_data.empty:
-                                    # Store comparison data in session state for main dashboard to use
-                                    st.session_state.comparison_data = comparison_data
-                                    st.session_state.comparison_file1_name = file1_selection
-                                    st.session_state.comparison_file2_name = file2_selection
+                                if not file1_stock.empty and not file2_stock.empty:
+                                    # Add categorizations to both datasets
+                                    file1_filtered = add_categorizations(file1_stock.copy())
+                                    file2_filtered = add_categorizations(file2_stock.copy())
                                     
-                                    # Show success message and let main dashboard handle the display
-                                    st.success("✅ Files loaded successfully! Comparison data is ready.")
+                                    # Create comparison data
+                                    comparison_data = create_comparison_data(file1_filtered, file2_filtered, file1_selection, file2_selection)
+                                    
+                                    if not comparison_data.empty:
+                                        # Store comparison data in session state for main dashboard to use
+                                        st.session_state.comparison_data = comparison_data
+                                        st.session_state.comparison_file1_name = file1_selection
+                                        st.session_state.comparison_file2_name = file2_selection
+                                        
+                                        # Store the original (pre-auto-sort) selections for dropdown persistence
+                                        st.session_state.compare_file1_selection = original_file1_selection
+                                        st.session_state.compare_file2_selection = original_file2_selection
+                                        
+                                        # Show success message and let main dashboard handle the display
+                                        st.success("✅ Files loaded successfully! Stock Comparison data is ready.")
+                                    else:
+                                        st.warning("⚠️ No matching data found between the two files for comparison.")
+                                        # Clear stored selections if no data found
+                                        st.session_state.compare_file1_selection = None
+                                        st.session_state.compare_file2_selection = None
                                 else:
-                                    st.warning("⚠️ No matching data found between the two files for comparison.")
-                            else:
-                                st.error("❌ One or both files don't contain valid Stock data for comparison.")
-                                
-                        except Exception as e:
-                            st.error(f"❌ Error processing files for comparison: {e}")
+                                    st.error("❌ One or both files don't contain valid Stock data for comparison.")
+                                    # Clear stored selections on error
+                                    st.session_state.compare_file1_selection = None
+                                    st.session_state.compare_file2_selection = None
+                                    
+                            except Exception as e:
+                                st.error(f"❌ Error processing files for comparison: {e}")
+                                # Clear stored selections on error
+                                st.session_state.compare_file1_selection = None
+                                st.session_state.compare_file2_selection = None
+                else:
+                    # Use cached data - selections haven't changed
+                    # Data is already in session_state, no need to reload
+                    pass
             elif file1_key == file2_key:
                 st.warning("⚠️ Please select two different files for comparison.")
+                # Clear stored selections if same file selected
+                if selections_changed:
+                    st.session_state.compare_file1_selection = None
+                    st.session_state.compare_file2_selection = None
             else:
                 st.error("❌ Could not find selected files.")
+                # Clear stored selections if files not found (e.g., deleted from S3)
+                st.session_state.compare_file1_selection = None
+                st.session_state.compare_file2_selection = None
+                # Clear comparison data if files are missing
+                if 'comparison_data' in st.session_state:
+                    del st.session_state.comparison_data
+                if 'comparison_file1_name' in st.session_state:
+                    del st.session_state.comparison_file1_name
+                if 'comparison_file2_name' in st.session_state:
+                    del st.session_state.comparison_file2_name
 
 
 def get_comparison_data_for_dashboard():
@@ -891,27 +867,35 @@ def get_comparison_data_for_dashboard():
         file1_name = st.session_state.get('comparison_file1_name', 'File 1')
         file2_name = st.session_state.get('comparison_file2_name', 'File 2')
         
-        # Extract dates from file names (assuming format: "filename (YYYY-MM-DD)")
+        # Extract dates from file names
+        # New format: label is just date (YYYY-MM-DD) or date + time (YYYY-MM-DD HH:MM)
+        # Old format (for backward compatibility): "filename (YYYY-MM-DD)"
         import re
-        file1_date = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file1_name)
-        file2_date = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file2_name)
+        # Try new format first (just date or date + time)
+        file1_date_match = re.search(r'(\d{4}-\d{2}-\d{2})', file1_name)
+        file2_date_match = re.search(r'(\d{4}-\d{2}-\d{2})', file2_name)
         
-        file1_date_str = file1_date.group(1) if file1_date else "Unknown"
-        file2_date_str = file2_date.group(1) if file2_date else "Unknown"
+        # If not found, try old format (date in parentheses)
+        if not file1_date_match:
+            file1_date_match = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file1_name)
+        if not file2_date_match:
+            file2_date_match = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file2_name)
         
-        # Format stock values to 3 decimal places
-        comparison_data['old_stock'] = comparison_data['old_stock'].apply(lambda x: round(float(x), 3) if pd.notna(x) and x is not None else x)
-        comparison_data['new_stock'] = comparison_data['new_stock'].apply(lambda x: round(float(x), 3) if pd.notna(x) and x is not None else x)
+        file1_date_str = file1_date_match.group(1) if file1_date_match else "Unknown"
+        file2_date_str = file2_date_match.group(1) if file2_date_match else "Unknown"
         
-        # Ensure proper display formatting
-        comparison_data['old_stock'] = comparison_data['old_stock'].apply(lambda x: f"{x:.3f}" if pd.notna(x) and x is not None else x)
-        comparison_data['new_stock'] = comparison_data['new_stock'].apply(lambda x: f"{x:.3f}" if pd.notna(x) and x is not None else x)
+        # Format stock values to 3 decimal places (keep numeric)
+        comparison_data['old_stock'] = pd.to_numeric(comparison_data['old_stock'], errors='coerce').fillna(0.0).round(3)
+        comparison_data['new_stock'] = pd.to_numeric(comparison_data['new_stock'], errors='coerce').fillna(0.0).round(3)
+        comparison_data['delta'] = pd.to_numeric(comparison_data['delta'], errors='coerce').fillna(0.0).round(3)
         
         # Apply the same column formatting as in the comparison tab
         # Rename columns for better display
+        file1_display = file1_date_str if file1_date_str != "Unknown" else "File 1"
+        file2_display = file2_date_str if file2_date_str != "Unknown" else "File 2"
         comparison_data = comparison_data.rename(columns={
-            'old_stock': f'({file1_date_str}) sheet data',
-            'new_stock': f'({file2_date_str}) sheet data',
+            'old_stock': f'MT ({file1_display})',
+            'new_stock': f'MT ({file2_display})',
             'delta': 'Change in Stock',  # This creates the Change in Stock column from delta
             'status': 'Status'
         })
@@ -922,16 +906,15 @@ def get_comparison_data_for_dashboard():
         if existing_columns_to_remove:
             comparison_data = comparison_data.drop(columns=existing_columns_to_remove)
         
-        # Define the desired column order - use Add_Spec (with underscore) like in Stock chart type
+        # Define preferred ordering for key columns (keep others for filtering)
         desired_columns = [
             'Specification', 'Grade', 'OD', 'WT', 'OD_Category', 'WT_Schedule',
-            f'({file1_date_str}) sheet data', f'({file2_date_str}) sheet data', 'Change in Stock', 'Status',
-             'Add_Spec','Make', 'Branch'
+            f'MT ({file1_display})', f'MT ({file2_display})', 'Change in Stock', 'Status',
+            'Add_Spec', 'Make', 'Branch'
         ]
-        
-        # Reorder columns - only include columns that exist in the dataframe
-        available_columns = [col for col in desired_columns if col in comparison_data.columns]
-        comparison_data = comparison_data[available_columns]
+        ordered_columns = [col for col in desired_columns if col in comparison_data.columns]
+        remaining_columns = [col for col in comparison_data.columns if col not in ordered_columns]
+        comparison_data = comparison_data[ordered_columns + remaining_columns]
         
         # Include ALL items in heatmap (Added, Removed, Changed, Unchanged)
         return comparison_data
