@@ -302,7 +302,7 @@ if st.session_state.get('show_whats_new', False):
             font-size: 11px;
             font-weight: normal;
         ">
-            18/11/2025
+            26/11/2025
         </div>
         <h2 style="color: white; margin: 0 0 15px 0; font-size: 24px; text-align: center;">
             What's New in Dashboard!
@@ -311,13 +311,11 @@ if st.session_state.get('show_whats_new', False):
             <div style="background: rgba(255,255,255,0.15); padding: 16px; border-radius: 10px; margin: 12px 0;">
                 <h3 style="color: #FFD700; margin: 0 0 12px 0; font-size: 18px;">✨ Latest Updates & Improvements</h3>
                 <ul style="margin: 0; padding-left: 18px; font-size: 16px;">
-                    <li style="margin: 6px 0;"><strong>New Compare Files Tab:</strong> A new “Compare Files” tab has been added, enabling you to pick any two previously uploaded files and view detailed differences in stock quantities & changes.</li>
+                    <li style="margin: 6px 0;"><strong>New Comparison Feature:</strong> A new “Compare Files” tab has been added, enabling you to select any two previously uploaded files and choose the specific dataset to view detailed differences in inventory quantities and changes between them.</li>
                     <li style="margin: 6px 0;"><strong>Month-wise View in Incoming Tab:</strong> The Incoming tab now includes month selectors, allowing you to instantly switch between months and view incoming stock month-by-month.</li>
                     <li style="margin: 6px 0;"><strong>Free For Sale Preview Table Fixed:</strong> The table has been corrected and now displays each product as a single line item with all details properly aligned.</li>
                     <li style="margin: 6px 0;"><strong>New Visualization:</strong> Added a Product Age bar chart below the Stock Preview table.</li>
                     <li style="margin: 6px 0;"><strong>Performance Improvement:</strong> Switching between tabs and applying filters is now up to 5× faster.</li>
-                    <li style="margin: 6px 0;"><strong>Stock Preview Table Enhancements:</strong> Product Age is now displayed in years (e.g., 0.19, 2.99) instead of days. Branch names now appear as short codes (e.g., BLR, BOM) for easier readability. The MT column also now shows values with three decimal places for better precision.</li>
-                    <li style="margin: 6px 0;"><strong>Filter Enhancement:</strong> Fixed the Make filter issue in the Incoming tab (no more “No data” errors).</li>
                     <li style="margin: 6px 0;"><strong>Quick Spec Buttons:</strong> The top specification buttons are now responsive and work properly.</li>
                 </ul>
             </div>
@@ -1970,6 +1968,13 @@ if data_file is not None:
                 st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>Preview: {size_chart_type} Data</h5>", unsafe_allow_html=True)
             with status_col:
                 if 'Status' in df_filtered.columns:
+                    # Initialize Status filter in session state if not exists (preserves state across reruns)
+                    # This ensures the Status filter persists when quick-spec buttons trigger reruns
+                    if "main_dashboard_status_filter" not in st.session_state:
+                        st.session_state.main_dashboard_status_filter = "All"
+                    
+                    # Render the Status filter selectbox - the key will preserve its state across reruns
+                    # Don't use index= parameter as it can override the preserved state from the key
                     status_filter = st.selectbox(
                         "Filter by Status:",
                         ["All", "Added", "Removed", "Increased", "Decreased", "Unchanged"],

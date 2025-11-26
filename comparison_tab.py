@@ -489,6 +489,121 @@ def get_file_from_s3_by_key(file_key):
         return None, None, f"Failed to retrieve file from S3: {e}"
 
 
+def calculate_free_for_sale(stock_df, reservations_df, incoming_df):
+    """
+    Calculate Free for Sale from Stock, Reservations, and Incoming sheets.
+    Formula: Free for Sale = Stock - Reservations + Incoming
+    Groups by Specification, OD, WT (matching product key logic).
+    
+    Args:
+        stock_df: DataFrame from Stock sheet
+        reservations_df: DataFrame from Reservations sheet
+        incoming_df: DataFrame from Incoming sheet
+    
+    Returns:
+        DataFrame with Free for Sale values, grouped by Specification, OD, WT
+    """
+    try:
+        # Combine all data with type indicator
+        combined_data = []
+        
+        if not stock_df.empty:
+            stock_df_copy = stock_df.copy()
+            stock_df_copy['Type'] = 'Stock'
+            combined_data.append(stock_df_copy)
+        
+        if not reservations_df.empty:
+            reservations_df_copy = reservations_df.copy()
+            reservations_df_copy['Type'] = 'Reservations'
+            combined_data.append(reservations_df_copy)
+        
+        if not incoming_df.empty:
+            incoming_df_copy = incoming_df.copy()
+            incoming_df_copy['Type'] = 'Incoming'
+            combined_data.append(incoming_df_copy)
+        
+        if not combined_data:
+            return pd.DataFrame()
+        
+        # Combine all data
+        all_data = pd.concat(combined_data, ignore_index=True)
+        
+        # Ensure proper data types for grouping
+        all_data_clean = all_data.copy()
+        
+        # Convert OD and WT to numeric, handling any non-numeric values
+        if 'OD' in all_data_clean.columns:
+            all_data_clean['OD'] = pd.to_numeric(all_data_clean['OD'], errors='coerce')
+        if 'WT' in all_data_clean.columns:
+            all_data_clean['WT'] = pd.to_numeric(all_data_clean['WT'], errors='coerce')
+        
+        # Round to 3 decimal places to match product key precision
+        if 'OD' in all_data_clean.columns:
+            all_data_clean['OD'] = all_data_clean['OD'].round(3)
+        if 'WT' in all_data_clean.columns:
+            all_data_clean['WT'] = all_data_clean['WT'].round(3)
+        
+        # Convert MT to numeric (treat blanks/invalid as 0)
+        if 'MT' in all_data_clean.columns:
+            all_data_clean['MT'] = pd.to_numeric(all_data_clean['MT'], errors='coerce').fillna(0)
+        else:
+            all_data_clean['MT'] = 0
+        
+        # Group by Specification, OD, WT (matching product key logic)
+        group_cols = ['Specification', 'OD', 'WT']
+        
+        # Ensure Specification is string and handle NaN
+        if 'Specification' in all_data_clean.columns:
+            all_data_clean['Specification'] = all_data_clean['Specification'].astype(str)
+            all_data_clean['Specification'] = all_data_clean['Specification'].replace('nan', '')
+            all_data_clean['Specification'] = all_data_clean['Specification'].str.strip()
+        
+        # Pivot to get Stock, Reservations, Incoming columns
+        pivot_data = all_data_clean.groupby(group_cols + ['Type'])['MT'].sum().reset_index()
+        pivot_data = pivot_data.pivot_table(
+            index=group_cols,
+            columns='Type',
+            values='MT',
+            fill_value=0
+        ).reset_index()
+        
+        # Calculate Free For Sale: Stock - Reservations + Incoming
+        pivot_data['MT'] = (
+            pivot_data.get('Stock', 0) -
+            pivot_data.get('Reservations', 0) +
+            pivot_data.get('Incoming', 0)
+        )
+        
+        # Keep only the columns needed for comparison (matching other datasets structure)
+        # Include Specification, OD, WT, MT, and preserve other columns if they exist
+        result_cols = ['Specification', 'OD', 'WT', 'MT']
+        
+        # Add other columns that might be in the original data (for display in comparison)
+        optional_cols = ['Make', 'Branch', 'Add_Spec']
+        for col in optional_cols:
+            if col in all_data_clean.columns:
+                # For optional columns, take the first non-empty value per group
+                if col not in result_cols:
+                    result_cols.append(col)
+                    # Get first non-empty value for each group
+                    col_data = all_data_clean.groupby(group_cols)[col].first().reset_index()
+                    pivot_data = pivot_data.merge(col_data, on=group_cols, how='left')
+        
+        # Select only the result columns that exist
+        available_result_cols = [col for col in result_cols if col in pivot_data.columns]
+        result_df = pivot_data[available_result_cols].copy()
+        
+        # Ensure MT is numeric and rounded
+        if 'MT' in result_df.columns:
+            result_df['MT'] = pd.to_numeric(result_df['MT'], errors='coerce').fillna(0.0).round(3)
+        
+        return result_df
+        
+    except Exception as e:
+        st.error(f"Error calculating Free for Sale: {e}")
+        return pd.DataFrame()
+
+
 def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
     """
     Create comparison data by aligning and comparing two inventory datasets.
@@ -505,9 +620,18 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
         file1_data['product_key'] = file1_data.apply(create_product_key, axis=1)
         file2_data['product_key'] = file2_data.apply(create_product_key, axis=1)
         
-        # Get MT values for comparison
-        file1_data['mt_file1'] = file1_data.get('MT', 0)
-        file2_data['mt_file2'] = file2_data.get('MT', 0)
+        # Normalize MT values BEFORE comparison to handle float precision issues
+        # Convert to numeric, handle errors, fill NaN with 0, and round to 3 decimals
+        # This ensures consistent comparison especially for Reservations with formula-derived values
+        if 'MT' in file1_data.columns:
+            file1_data['mt_file1'] = pd.to_numeric(file1_data['MT'], errors='coerce').fillna(0.0).round(3)
+        else:
+            file1_data['mt_file1'] = 0.0
+        
+        if 'MT' in file2_data.columns:
+            file2_data['mt_file2'] = pd.to_numeric(file2_data['MT'], errors='coerce').fillna(0.0).round(3)
+        else:
+            file2_data['mt_file2'] = 0.0
         
         # Create comparison DataFrame
         comparison_cols = ['Specification', 'OD', 'WT', 'Make', 'Branch', 'Add_Spec', 'OD_Category', 'WT_Schedule', 'Grade']
@@ -526,8 +650,17 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
             has_file2 = not file2_rows.empty
 
             # Aggregate MT values for identical products (sum all MT values for same product key)
+            # MT values are already normalized (numeric, rounded to 3 decimals) from earlier step
             mt1 = file1_rows['mt_file1'].sum() if has_file1 else 0.0
             mt2 = file2_rows['mt_file2'].sum() if has_file2 else 0.0
+            
+            # Round aggregated sums to handle any floating-point precision issues from summation
+            mt1 = round(float(mt1), 3)
+            mt2 = round(float(mt2), 3)
+            
+            # Tolerance for comparing MT values (accounts for floating-point precision differences)
+            # Values within 0.001 are considered equal
+            TOLERANCE = 0.001
             
             # Calculate delta: New Sheet - Previous Sheet
             # Positive = Stock increased (Green)
@@ -540,37 +673,45 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
                 continue
             elif not has_file1 and has_file2:
                 # Added item - stock increased from 0 to positive value
-                delta = float(mt2)
+                delta = mt2
                 status = "Added"
                 base_row = file2_rows.iloc[0]  # Use first row from file2 for base data
                 is_zero_difference = False
             elif has_file1 and not has_file2:
                 # Removed item - stock decreased from positive value to 0
-                delta = -float(mt1)
+                delta = -mt1
                 status = "Removed"
                 base_row = file1_rows.iloc[0]  # Use first row from file1 for base data
                 is_zero_difference = False
             else:
                 # Both sheets have data - determine status based on change direction
-                delta = float(mt2) - float(mt1)
-                if delta > 0:
-                    status = "Increased"
-                elif delta < 0:
-                    status = "Decreased"
-                else:
+                delta = mt2 - mt1
+                # Round delta to 3 decimals for consistency
+                delta = round(delta, 3)
+                
+                # Use tolerance-based comparison to handle floating-point precision issues
+                # This is critical for Reservations where formula-derived values may have tiny differences
+                if abs(delta) <= TOLERANCE:
                     status = "Unchanged"
+                elif delta > TOLERANCE:
+                    status = "Increased"
+                else:  # delta < -TOLERANCE
+                    status = "Decreased"
+                
                 base_row = file1_rows.iloc[0]  # Use first row from file1 for base data
                 
                 # Mark actual zero differences (both sheets have same non-zero data)
-                is_zero_difference = (delta == 0 and mt1 != 0 and mt2 != 0)
+                # Use tolerance-based comparison here too
+                is_zero_difference = (abs(delta) <= TOLERANCE and abs(mt1) > TOLERANCE and abs(mt2) > TOLERANCE)
             
             # Create comparison row
+            # Values are already rounded, so we can use them directly
             row_data = {
                 'product_key': key,
                 'status': status,
-                'old_stock': float(mt1) if has_file1 else 0.0,
-                'new_stock': float(mt2) if has_file2 else 0.0,
-                'delta': float(delta),
+                'old_stock': mt1 if has_file1 else 0.0,
+                'new_stock': mt2 if has_file2 else 0.0,
+                'delta': delta,
                 'file1_name': file1_name,
                 'file2_name': file2_name,
                 'is_zero_difference': is_zero_difference if 'is_zero_difference' in locals() else False
@@ -632,6 +773,8 @@ def render_comparison_tab():
             st.session_state.compare_file1_selection = None
         if 'compare_file2_selection' not in st.session_state:
             st.session_state.compare_file2_selection = None
+        if 'compare_dataset' not in st.session_state:
+            st.session_state.compare_dataset = "Stock"  # Default to Stock
         
         # Check if stored selections are still available (handle case where files were deleted from S3)
         file1_options = [f["label"] for f in available_files]
@@ -644,6 +787,8 @@ def render_comparison_tab():
                 del st.session_state.comparison_data
             if 'comparison_file1_name' in st.session_state:
                 del st.session_state.comparison_file1_name
+            if 'comparison_dataset_name' in st.session_state:
+                del st.session_state.comparison_dataset_name
         
         if st.session_state.compare_file2_selection and st.session_state.compare_file2_selection not in file2_options:
             # Stored file 2 is no longer available, clear it
@@ -652,9 +797,14 @@ def render_comparison_tab():
                 del st.session_state.comparison_data
             if 'comparison_file2_name' in st.session_state:
                 del st.session_state.comparison_file2_name
+            if 'comparison_dataset_name' in st.session_state:
+                del st.session_state.comparison_dataset_name
         
-        # Create two columns for file selection
-        col1, col2 = st.columns(2)
+        # Define available datasets
+        available_datasets = ["Stock", "Reservations", "Incoming", "Free for Sale"]
+        
+        # Create three columns for file and dataset selection
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             # Use stored selection as default if available and still in options
@@ -686,10 +836,24 @@ def render_comparison_tab():
                 help="Select the second (newer) date to compare"
             )
         
+        with col3:
+            # Dataset selector
+            dataset_selection = st.selectbox(
+                "Select Dataset:",
+                options=available_datasets,
+                index=available_datasets.index(st.session_state.compare_dataset) if st.session_state.compare_dataset in available_datasets else 0,
+                key="dataset_comparison",
+                help="Select the dataset to compare (Stock, Reservations, Incoming, or Free for Sale)"
+            )
+        
+        # Store dataset selection in session state
+        st.session_state.compare_dataset = dataset_selection
+        
         # Check if selections have changed
         selections_changed = (
             file1_selection != st.session_state.compare_file1_selection or
-            file2_selection != st.session_state.compare_file2_selection
+            file2_selection != st.session_state.compare_file2_selection or
+            dataset_selection != st.session_state.get('comparison_dataset_name', None)
         )
         
         # Check if we have valid cached comparison data that matches current selections
@@ -698,7 +862,8 @@ def render_comparison_tab():
         if ('comparison_data' in st.session_state and 
             not st.session_state.comparison_data.empty and
             st.session_state.get('comparison_file1_name') and
-            st.session_state.get('comparison_file2_name')):
+            st.session_state.get('comparison_file2_name') and
+            st.session_state.get('comparison_dataset_name')):
             # We'll validate the cached data matches after we determine the auto-sorted file names
             # This will be checked later in the code after auto-sort
             has_cached_data = True
@@ -740,13 +905,16 @@ def render_comparison_tab():
                 if files_were_swapped:
                     st.info("ℹ️ Files automatically sorted chronologically: File 1 (older) → File 2 (newer)")
                 
-                # Validate cached data matches the auto-sorted file names
+                # Validate cached data matches the auto-sorted file names and dataset
                 cached_data_valid = False
                 if has_cached_data:
                     cached_file1 = st.session_state.get('comparison_file1_name')
                     cached_file2 = st.session_state.get('comparison_file2_name')
-                    # Check if cached data matches the auto-sorted file names
-                    if cached_file1 == file1_selection and cached_file2 == file2_selection:
+                    cached_dataset = st.session_state.get('comparison_dataset_name')
+                    # Check if cached data matches the auto-sorted file names and current dataset
+                    if (cached_file1 == file1_selection and 
+                        cached_file2 == file2_selection and 
+                        cached_dataset == dataset_selection):
                         cached_data_valid = True
                     else:
                         # Cached data doesn't match, need to reload
@@ -764,6 +932,8 @@ def render_comparison_tab():
                             del st.session_state.comparison_file1_name
                         if 'comparison_file2_name' in st.session_state:
                             del st.session_state.comparison_file2_name
+                        if 'comparison_dataset_name' in st.session_state:
+                            del st.session_state.comparison_dataset_name
                     
                     # Read both files from S3 (read-only access)
                     with st.spinner("Processing..."):
@@ -775,11 +945,15 @@ def render_comparison_tab():
                             # Clear stored selections on error
                             st.session_state.compare_file1_selection = None
                             st.session_state.compare_file2_selection = None
+                            if 'comparison_dataset_name' in st.session_state:
+                                del st.session_state.comparison_dataset_name
                         elif file2_error:
                             st.error(f"❌ Error loading second file: {file2_error}")
                             # Clear stored selections on error
                             st.session_state.compare_file1_selection = None
                             st.session_state.compare_file2_selection = None
+                            if 'comparison_dataset_name' in st.session_state:
+                                del st.session_state.comparison_dataset_name
                         else:
                             # Process both files
                             try:
@@ -787,14 +961,58 @@ def render_comparison_tab():
                                 file1_sheets = load_inventory_data(file1_data)
                                 file2_sheets = load_inventory_data(file2_data)
                                 
-                                # Get Stock data from both files
-                                file1_stock = file1_sheets.get("Stock", pd.DataFrame())
-                                file2_stock = file2_sheets.get("Stock", pd.DataFrame())
+                                # Get selected dataset from both files (dynamic based on user selection)
+                                dataset = st.session_state.get("compare_dataset", "Stock")
                                 
-                                if not file1_stock.empty and not file2_stock.empty:
+                                # Handle Free for Sale dataset (calculated, not loaded)
+                                if dataset == "Free for Sale":
+                                    # Calculate Free for Sale for both files
+                                    file1_df = calculate_free_for_sale(
+                                        file1_sheets.get("Stock", pd.DataFrame()),
+                                        file1_sheets.get("Reservations", pd.DataFrame()),
+                                        file1_sheets.get("Incoming", pd.DataFrame())
+                                    )
+                                    file2_df = calculate_free_for_sale(
+                                        file2_sheets.get("Stock", pd.DataFrame()),
+                                        file2_sheets.get("Reservations", pd.DataFrame()),
+                                        file2_sheets.get("Incoming", pd.DataFrame())
+                                    )
+                                else:
+                                    # Load dataset directly from sheets (Stock, Reservations, or Incoming)
+                                    file1_df = file1_sheets.get(dataset, pd.DataFrame())
+                                    file2_df = file2_sheets.get(dataset, pd.DataFrame())
+                                
+                                # Check if dataset exists in both files
+                                if file1_df.empty and file2_df.empty:
+                                    st.error(f"❌ Dataset '{dataset}' not found in one or both files. Try selecting another dataset.")
+                                    # Clear stored selections on error
+                                    st.session_state.compare_file1_selection = None
+                                    st.session_state.compare_file2_selection = None
+                                    if 'comparison_data' in st.session_state:
+                                        del st.session_state.comparison_data
+                                    if 'comparison_file1_name' in st.session_state:
+                                        del st.session_state.comparison_file1_name
+                                    if 'comparison_file2_name' in st.session_state:
+                                        del st.session_state.comparison_file2_name
+                                    if 'comparison_dataset_name' in st.session_state:
+                                        del st.session_state.comparison_dataset_name
+                                elif file1_df.empty or file2_df.empty:
+                                    st.error(f"❌ Dataset '{dataset}' not found in one or both files. Try selecting another dataset.")
+                                    # Clear stored selections on error
+                                    st.session_state.compare_file1_selection = None
+                                    st.session_state.compare_file2_selection = None
+                                    if 'comparison_data' in st.session_state:
+                                        del st.session_state.comparison_data
+                                    if 'comparison_file1_name' in st.session_state:
+                                        del st.session_state.comparison_file1_name
+                                    if 'comparison_file2_name' in st.session_state:
+                                        del st.session_state.comparison_file2_name
+                                    if 'comparison_dataset_name' in st.session_state:
+                                        del st.session_state.comparison_dataset_name
+                                else:
                                     # Add categorizations to both datasets
-                                    file1_filtered = add_categorizations(file1_stock.copy())
-                                    file2_filtered = add_categorizations(file2_stock.copy())
+                                    file1_filtered = add_categorizations(file1_df.copy())
+                                    file2_filtered = add_categorizations(file2_df.copy())
                                     
                                     # Create comparison data
                                     comparison_data = create_comparison_data(file1_filtered, file2_filtered, file1_selection, file2_selection)
@@ -804,29 +1022,29 @@ def render_comparison_tab():
                                         st.session_state.comparison_data = comparison_data
                                         st.session_state.comparison_file1_name = file1_selection
                                         st.session_state.comparison_file2_name = file2_selection
+                                        st.session_state.comparison_dataset_name = dataset
                                         
                                         # Store the original (pre-auto-sort) selections for dropdown persistence
                                         st.session_state.compare_file1_selection = original_file1_selection
                                         st.session_state.compare_file2_selection = original_file2_selection
                                         
                                         # Show success message and let main dashboard handle the display
-                                        st.success("✅ Files loaded successfully! Stock Comparison data is ready.")
+                                        st.success(f"✅ Files loaded successfully! {dataset} Comparison data is ready.")
                                     else:
                                         st.warning("⚠️ No matching data found between the two files for comparison.")
                                         # Clear stored selections if no data found
                                         st.session_state.compare_file1_selection = None
                                         st.session_state.compare_file2_selection = None
-                                else:
-                                    st.error("❌ One or both files don't contain valid Stock data for comparison.")
-                                    # Clear stored selections on error
-                                    st.session_state.compare_file1_selection = None
-                                    st.session_state.compare_file2_selection = None
+                                        if 'comparison_dataset_name' in st.session_state:
+                                            del st.session_state.comparison_dataset_name
                                     
                             except Exception as e:
                                 st.error(f"❌ Error processing files for comparison: {e}")
                                 # Clear stored selections on error
                                 st.session_state.compare_file1_selection = None
                                 st.session_state.compare_file2_selection = None
+                                if 'comparison_dataset_name' in st.session_state:
+                                    del st.session_state.comparison_dataset_name
                 else:
                     # Use cached data - selections haven't changed
                     # Data is already in session_state, no need to reload
@@ -837,6 +1055,8 @@ def render_comparison_tab():
                 if selections_changed:
                     st.session_state.compare_file1_selection = None
                     st.session_state.compare_file2_selection = None
+                    if 'comparison_dataset_name' in st.session_state:
+                        del st.session_state.comparison_dataset_name
             else:
                 st.error("❌ Could not find selected files.")
                 # Clear stored selections if files not found (e.g., deleted from S3)
@@ -849,6 +1069,8 @@ def render_comparison_tab():
                     del st.session_state.comparison_file1_name
                 if 'comparison_file2_name' in st.session_state:
                     del st.session_state.comparison_file2_name
+                if 'comparison_dataset_name' in st.session_state:
+                    del st.session_state.comparison_dataset_name
 
 
 def get_comparison_data_for_dashboard():
