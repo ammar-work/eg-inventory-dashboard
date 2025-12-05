@@ -400,11 +400,12 @@ def list_available_files_from_s3(prefix=None):
         return [], "S3 client not available"
 
     try:
-        # Resolve prefix: env override -> provided -> root
+        # Resolve prefix: env/secrets -> provided parameter
+        # S3_PREFIX should be set in Streamlit secrets or environment variables
         env_prefix = os.getenv("S3_PREFIX")
         effective_prefix = env_prefix if env_prefix is not None else prefix
         if effective_prefix is None:
-            effective_prefix = ""
+            return [], "S3_PREFIX not configured. Please set S3_PREFIX."
 
         def list_with_prefix(pref: str):
             files = []
@@ -437,17 +438,28 @@ def list_available_files_from_s3(prefix=None):
                     break
             return files
 
-        # First attempt with effective prefix
+        # List files with the effective prefix (from S3_PREFIX configuration)
         xlsx_files = list_with_prefix(effective_prefix)
-        # Fallback to root if none found
-        if not xlsx_files and effective_prefix:
-            xlsx_files = list_with_prefix("")
 
         if not xlsx_files:
             return [], "No Excel files found in S3 bucket"
 
         # Sort by upload date (newest first)
         xlsx_files.sort(key=lambda x: x['last_modified'], reverse=True)
+        
+        # Deduplicate by filename - keep only the latest version of each file
+        # This handles S3 versioning where the same file may appear multiple times
+        # Since files are sorted newest first, we keep the first occurrence of each filename
+        seen_filenames = set()
+        deduplicated_files = []
+        for file_info in xlsx_files:
+            filename = file_info['filename']
+            if filename not in seen_filenames:
+                seen_filenames.add(filename)
+                deduplicated_files.append(file_info)
+        
+        # Use deduplicated list (already sorted by date, newest first)
+        xlsx_files = deduplicated_files
         
         # Always show Date+Time for all files for consistency
         for file_info in xlsx_files:
