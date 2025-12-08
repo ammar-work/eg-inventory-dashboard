@@ -11,6 +11,7 @@ import numpy as np
 import io
 import os
 from functools import lru_cache
+from datetime import timezone, timedelta
 
 # Import required modules for S3 functionality
 import boto3
@@ -422,7 +423,17 @@ def list_available_files_from_s3(prefix=None):
                     key_lower = obj["Key"].lower()
                     if key_lower.endswith(".xlsx") or key_lower.endswith(".xlsm"):
                         filename = obj['Key'].split('/')[-1]
-                        upload_date = obj['LastModified'].strftime('%Y-%m-%d')
+                        # Convert UTC to IST (UTC+5:30) for display
+                        ist_timezone = timezone(timedelta(hours=5, minutes=30))
+                        last_modified_utc = obj['LastModified']
+                        # Convert to IST if timezone-aware, otherwise assume UTC
+                        if last_modified_utc.tzinfo is not None:
+                            last_modified_ist = last_modified_utc.astimezone(ist_timezone)
+                        else:
+                            # If naive datetime, assume UTC and convert to IST
+                            last_modified_utc = last_modified_utc.replace(tzinfo=timezone.utc)
+                            last_modified_ist = last_modified_utc.astimezone(ist_timezone)
+                        upload_date = last_modified_ist.strftime('%Y-%m-%d')
                         # Show only the date as label (for Compare Files tab dropdown)
                         label = upload_date
                         files.append({
@@ -430,7 +441,7 @@ def list_available_files_from_s3(prefix=None):
                             "label": label,
                             "uploaded_at": upload_date,
                             "filename": filename,
-                            "last_modified": obj['LastModified']
+                            "last_modified": obj['LastModified']  # Keep UTC for sorting/comparison
                         })
                 if response.get("IsTruncated"):
                     continuation_token = response.get("NextContinuationToken")
@@ -461,11 +472,23 @@ def list_available_files_from_s3(prefix=None):
         # Use deduplicated list (already sorted by date, newest first)
         xlsx_files = deduplicated_files
         
-        # Always show Date+Time for all files for consistency
+        # Always show Date+Time for all files for consistency (in IST)
+        ist_timezone = timezone(timedelta(hours=5, minutes=30))
         for file_info in xlsx_files:
-            date = file_info['uploaded_at']
-            time_str = file_info['last_modified'].strftime('%H:%M')
+            # Convert UTC to IST for both date and time display
+            last_modified_utc = file_info['last_modified']
+            if last_modified_utc.tzinfo is not None:
+                last_modified_ist = last_modified_utc.astimezone(ist_timezone)
+            else:
+                # If naive datetime, assume UTC and convert to IST
+                last_modified_utc = last_modified_utc.replace(tzinfo=timezone.utc)
+                last_modified_ist = last_modified_utc.astimezone(ist_timezone)
+            # Recalculate date and time from IST to ensure consistency
+            date = last_modified_ist.strftime('%Y-%m-%d')
+            time_str = last_modified_ist.strftime('%I:%M %p IST')  # 12-hour format with AM/PM and IST timezone
             file_info['label'] = f"{date} {time_str}"
+            # Update uploaded_at to IST date for consistency
+            file_info['uploaded_at'] = date
 
         return xlsx_files, None
 
