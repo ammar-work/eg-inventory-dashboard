@@ -107,68 +107,77 @@ def add_categorizations(df):
 
 def load_inventory_data(file):
     """Load inventory data from Excel file - simplified version for comparison"""
-    xls = pd.ExcelFile(file)
-    sheets = {}
+    try:
+        xls = pd.ExcelFile(file)
+    except Exception:
+        # Invalid Excel file structure
+        raise ValueError("The uploaded file does not match the required structure for comparison. Please select another file.")
     
-    for sheet in ["Stock", "Incoming", "Reservations"]:
-        if sheet in xls.sheet_names:
-            # Try to read with different header rows to find the actual data
-            df_original = pd.read_excel(xls, sheet_name=sheet)
-            
-            # Check if the first row contains meaningful column names
-            first_row = df_original.iloc[0] if len(df_original) > 0 else pd.Series()
-            
-            # Special handling for Incoming sheet - try row 4 (Excel row 5) first if it's the Incoming sheet
-            if sheet == "Incoming":
-                try:
-                    df_incoming_row4 = pd.read_excel(xls, sheet_name=sheet, header=4)  # Excel row 5
-                    meaningful_cols = [col for col in df_incoming_row4.columns if not str(col).startswith('Unnamed:') and str(col) != 'nan']
-                    if len(meaningful_cols) >= 5:
-                        df_original = df_incoming_row4
-                        first_row = df_original.iloc[0] if len(df_original) > 0 else pd.Series()
-                except:
-                    pass  # Fall back to normal detection
-            
-            # If first row has mostly unnamed columns, try reading with different header rows
-            if any('Unnamed:' in str(col) for col in df_original.columns) or len(first_row) == 0:
-                # Try different header rows (rows 0, 1, 2, 3, 4, 5) to handle various header positions
-                for header_row in range(6):
+    try:
+        sheets = {}
+        
+        for sheet in ["Stock", "Incoming", "Reservations"]:
+            if sheet in xls.sheet_names:
+                # Try to read with different header rows to find the actual data
+                df_original = pd.read_excel(xls, sheet_name=sheet)
+                
+                # Check if the first row contains meaningful column names
+                first_row = df_original.iloc[0] if len(df_original) > 0 else pd.Series()
+                
+                # Special handling for Incoming sheet - try row 4 (Excel row 5) first if it's the Incoming sheet
+                if sheet == "Incoming":
                     try:
-                        df = pd.read_excel(xls, sheet_name=sheet, header=header_row)
-                        # Check if this gives us meaningful column names
-                        meaningful_cols = [col for col in df.columns if not str(col).startswith('Unnamed:') and str(col) != 'nan']
-                        
-                        if len(meaningful_cols) >= 5:  # At least 5 meaningful columns
-                            break
+                        df_incoming_row4 = pd.read_excel(xls, sheet_name=sheet, header=4)  # Excel row 5
+                        meaningful_cols = [col for col in df_incoming_row4.columns if not str(col).startswith('Unnamed:') and str(col) != 'nan']
+                        if len(meaningful_cols) >= 5:
+                            df_original = df_incoming_row4
+                            first_row = df_original.iloc[0] if len(df_original) > 0 else pd.Series()
                     except:
-                        continue
+                        pass  # Fall back to normal detection
+                
+                # If first row has mostly unnamed columns, try reading with different header rows
+                if any('Unnamed:' in str(col) for col in df_original.columns) or len(first_row) == 0:
+                    # Try different header rows (rows 0, 1, 2, 3, 4, 5) to handle various header positions
+                    for header_row in range(6):
+                        try:
+                            df = pd.read_excel(xls, sheet_name=sheet, header=header_row)
+                            # Check if this gives us meaningful column names
+                            meaningful_cols = [col for col in df.columns if not str(col).startswith('Unnamed:') and str(col) != 'nan']
+                            
+                            if len(meaningful_cols) >= 5:  # At least 5 meaningful columns
+                                break
+                        except:
+                            continue
+                    else:
+                        # If no good headers found, use original
+                        df = df_original
                 else:
-                    # If no good headers found, use original
                     df = df_original
+                
+                # Optimized column name standardization using vectorized operations
+                df.columns = [str(c).strip().replace(" ", "_").replace(".", "").replace("-", "_") for c in df.columns]
+                
+                # Standardize additional spec column names to "Add_Spec" for all sheets
+                add_spec_columns = [c for c in df.columns if c.lower() in ["add_spec", "addlspec", "addl_spec", "additional_spec", "add_spec", "additional_spec"]]
+                if not add_spec_columns:
+                    add_spec_columns = [c for c in df.columns if "addlspec" in c.lower() or "addl_spec" in c.lower() or "add_spec" in c.lower()]
+                
+                if add_spec_columns:
+                    # Rename the first found additional spec column to "Add_Spec"
+                    df = df.rename(columns={add_spec_columns[0]: "Add_Spec"})
+                
+                # Optimized data cleaning using vectorized operations
+                df = df.dropna(how='all')  # Remove completely empty rows
+                df = df.fillna('')  # Fill NaN values with empty string
+                
+                sheets[sheet] = df
             else:
-                df = df_original
-            
-            # Optimized column name standardization using vectorized operations
-            df.columns = [str(c).strip().replace(" ", "_").replace(".", "").replace("-", "_") for c in df.columns]
-            
-            # Standardize additional spec column names to "Add_Spec" for all sheets
-            add_spec_columns = [c for c in df.columns if c.lower() in ["add_spec", "addlspec", "addl_spec", "additional_spec", "add_spec", "additional_spec"]]
-            if not add_spec_columns:
-                add_spec_columns = [c for c in df.columns if "addlspec" in c.lower() or "addl_spec" in c.lower() or "add_spec" in c.lower()]
-            
-            if add_spec_columns:
-                # Rename the first found additional spec column to "Add_Spec"
-                df = df.rename(columns={add_spec_columns[0]: "Add_Spec"})
-            
-            # Optimized data cleaning using vectorized operations
-            df = df.dropna(how='all')  # Remove completely empty rows
-            df = df.fillna('')  # Fill NaN values with empty string
-            
-            sheets[sheet] = df
-        else:
-            sheets[sheet] = pd.DataFrame()
-    
-    return sheets
+                sheets[sheet] = pd.DataFrame()
+        
+        return sheets
+    except Exception:
+        # File structure doesn't match expected format
+        raise ValueError("The uploaded file does not match the required structure for comparison. Please select another file.")
 
 
 def derive_grade_from_spec(spec, combine_cs_as=False):
@@ -644,6 +653,14 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
     Create comparison data by aligning and comparing two inventory datasets.
     """
     try:
+        # Validate required columns exist in both datasets
+        required_cols = ['Specification', 'OD', 'WT']
+        missing_cols_file1 = [col for col in required_cols if col not in file1_data.columns]
+        missing_cols_file2 = [col for col in required_cols if col not in file2_data.columns]
+        
+        if missing_cols_file1 or missing_cols_file2:
+            raise ValueError("The uploaded file does not match the required structure for comparison. Please select another file.")
+        
         # Create unique identifiers for each product (Specification + OD + WT)
         def create_product_key(row):
             spec = str(row.get('Specification', '')).strip()
@@ -783,9 +800,12 @@ def create_comparison_data(file1_data, file2_data, file1_name, file2_name):
         
         return comparison_df
         
+    except (KeyError, ValueError, AttributeError, IndexError) as e:
+        # Handle validation errors gracefully
+        return pd.DataFrame()  # Return empty DataFrame - error will be shown by caller
     except Exception as e:
-        st.error(f"Error creating comparison data: {e}")
-        return pd.DataFrame()
+        # Handle any other unexpected errors
+        return pd.DataFrame()  # Return empty DataFrame - error will be shown by caller
 
 
 def render_comparison_tab():
@@ -993,88 +1013,125 @@ def render_comparison_tab():
                             # Process both files
                             try:
                                 # Load inventory data from both files
-                                file1_sheets = load_inventory_data(file1_data)
-                                file2_sheets = load_inventory_data(file2_data)
-                                
-                                # Get selected dataset from both files (dynamic based on user selection)
-                                dataset = st.session_state.get("compare_dataset", "Stock")
-                                
-                                # Handle Free for Sale dataset (calculated, not loaded)
-                                if dataset == "Free for Sale":
-                                    # Calculate Free for Sale for both files
-                                    file1_df = calculate_free_for_sale(
-                                        file1_sheets.get("Stock", pd.DataFrame()),
-                                        file1_sheets.get("Reservations", pd.DataFrame()),
-                                        file1_sheets.get("Incoming", pd.DataFrame())
-                                    )
-                                    file2_df = calculate_free_for_sale(
-                                        file2_sheets.get("Stock", pd.DataFrame()),
-                                        file2_sheets.get("Reservations", pd.DataFrame()),
-                                        file2_sheets.get("Incoming", pd.DataFrame())
-                                    )
-                                else:
-                                    # Load dataset directly from sheets (Stock, Reservations, or Incoming)
-                                    file1_df = file1_sheets.get(dataset, pd.DataFrame())
-                                    file2_df = file2_sheets.get(dataset, pd.DataFrame())
-                                
-                                # Check if dataset exists in both files
-                                if file1_df.empty and file2_df.empty:
-                                    st.error(f"❌ Dataset '{dataset}' not found in one or both files. Try selecting another dataset.")
+                                try:
+                                    file1_sheets = load_inventory_data(file1_data)
+                                except ValueError as e:
+                                    st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
                                     # Clear stored selections on error
                                     st.session_state.compare_file1_selection = None
                                     st.session_state.compare_file2_selection = None
-                                    if 'comparison_data' in st.session_state:
-                                        del st.session_state.comparison_data
-                                    if 'comparison_file1_name' in st.session_state:
-                                        del st.session_state.comparison_file1_name
-                                    if 'comparison_file2_name' in st.session_state:
-                                        del st.session_state.comparison_file2_name
-                                    if 'comparison_dataset_name' in st.session_state:
-                                        del st.session_state.comparison_dataset_name
-                                elif file1_df.empty or file2_df.empty:
-                                    st.error(f"❌ Dataset '{dataset}' not found in one or both files. Try selecting another dataset.")
-                                    # Clear stored selections on error
-                                    st.session_state.compare_file1_selection = None
-                                    st.session_state.compare_file2_selection = None
-                                    if 'comparison_data' in st.session_state:
-                                        del st.session_state.comparison_data
-                                    if 'comparison_file1_name' in st.session_state:
-                                        del st.session_state.comparison_file1_name
-                                    if 'comparison_file2_name' in st.session_state:
-                                        del st.session_state.comparison_file2_name
                                     if 'comparison_dataset_name' in st.session_state:
                                         del st.session_state.comparison_dataset_name
                                 else:
-                                    # Add categorizations to both datasets
-                                    file1_filtered = add_categorizations(file1_df.copy())
-                                    file2_filtered = add_categorizations(file2_df.copy())
-                                    
-                                    # Create comparison data
-                                    comparison_data = create_comparison_data(file1_filtered, file2_filtered, file1_selection, file2_selection)
-                                    
-                                    if not comparison_data.empty:
-                                        # Store comparison data in session state for main dashboard to use
-                                        st.session_state.comparison_data = comparison_data
-                                        st.session_state.comparison_file1_name = file1_selection
-                                        st.session_state.comparison_file2_name = file2_selection
-                                        st.session_state.comparison_dataset_name = dataset
-                                        
-                                        # Store the original (pre-auto-sort) selections for dropdown persistence
-                                        st.session_state.compare_file1_selection = original_file1_selection
-                                        st.session_state.compare_file2_selection = original_file2_selection
-                                        
-                                        # Show success message and let main dashboard handle the display
-                                        st.success(f"✅ Files loaded successfully! {dataset} Comparison data is ready.")
-                                    else:
-                                        st.warning("⚠️ No matching data found between the two files for comparison.")
-                                        # Clear stored selections if no data found
+                                    # File 1 loaded successfully, try loading file 2
+                                    try:
+                                        file2_sheets = load_inventory_data(file2_data)
+                                    except ValueError as e:
+                                        st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                                        # Clear stored selections on error
                                         st.session_state.compare_file1_selection = None
                                         st.session_state.compare_file2_selection = None
                                         if 'comparison_dataset_name' in st.session_state:
                                             del st.session_state.comparison_dataset_name
+                                    else:
+                                        # Both files loaded successfully, proceed with processing
+                                        
+                                        # Get selected dataset from both files (dynamic based on user selection)
+                                        dataset = st.session_state.get("compare_dataset", "Stock")
+                                        
+                                        # Handle Free for Sale dataset (calculated, not loaded)
+                                        if dataset == "Free for Sale":
+                                            # Calculate Free for Sale for both files
+                                            file1_df = calculate_free_for_sale(
+                                                file1_sheets.get("Stock", pd.DataFrame()),
+                                                file1_sheets.get("Reservations", pd.DataFrame()),
+                                                file1_sheets.get("Incoming", pd.DataFrame())
+                                            )
+                                            file2_df = calculate_free_for_sale(
+                                                file2_sheets.get("Stock", pd.DataFrame()),
+                                                file2_sheets.get("Reservations", pd.DataFrame()),
+                                                file2_sheets.get("Incoming", pd.DataFrame())
+                                            )
+                                        else:
+                                            # Load dataset directly from sheets (Stock, Reservations, or Incoming)
+                                            file1_df = file1_sheets.get(dataset, pd.DataFrame())
+                                            file2_df = file2_sheets.get(dataset, pd.DataFrame())
+                                        
+                                        # Check if dataset exists in both files
+                                        if file1_df.empty and file2_df.empty:
+                                            st.error(f"❌ Dataset '{dataset}' not found in one or both files. Try selecting another dataset.")
+                                            # Clear stored selections on error
+                                            st.session_state.compare_file1_selection = None
+                                            st.session_state.compare_file2_selection = None
+                                            if 'comparison_data' in st.session_state:
+                                                del st.session_state.comparison_data
+                                            if 'comparison_file1_name' in st.session_state:
+                                                del st.session_state.comparison_file1_name
+                                            if 'comparison_file2_name' in st.session_state:
+                                                del st.session_state.comparison_file2_name
+                                            if 'comparison_dataset_name' in st.session_state:
+                                                del st.session_state.comparison_dataset_name
+                                        elif file1_df.empty or file2_df.empty:
+                                            st.error(f"❌ Dataset '{dataset}' not found in one or both files. Try selecting another dataset.")
+                                            # Clear stored selections on error
+                                            st.session_state.compare_file1_selection = None
+                                            st.session_state.compare_file2_selection = None
+                                            if 'comparison_data' in st.session_state:
+                                                del st.session_state.comparison_data
+                                            if 'comparison_file1_name' in st.session_state:
+                                                del st.session_state.comparison_file1_name
+                                            if 'comparison_file2_name' in st.session_state:
+                                                del st.session_state.comparison_file2_name
+                                            if 'comparison_dataset_name' in st.session_state:
+                                                del st.session_state.comparison_dataset_name
+                                        else:
+                                            # Add categorizations to both datasets
+                                            try:
+                                                file1_filtered = add_categorizations(file1_df.copy())
+                                                file2_filtered = add_categorizations(file2_df.copy())
+                                            except Exception:
+                                                st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                                                # Clear stored selections on error
+                                                st.session_state.compare_file1_selection = None
+                                                st.session_state.compare_file2_selection = None
+                                                if 'comparison_dataset_name' in st.session_state:
+                                                    del st.session_state.comparison_dataset_name
+                                            else:
+                                                # Create comparison data
+                                                comparison_data = create_comparison_data(file1_filtered, file2_filtered, file1_selection, file2_selection)
+                                                
+                                                if comparison_data.empty:
+                                                    st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                                                    # Clear stored selections on error
+                                                    st.session_state.compare_file1_selection = None
+                                                    st.session_state.compare_file2_selection = None
+                                                    if 'comparison_dataset_name' in st.session_state:
+                                                        del st.session_state.comparison_dataset_name
+                                                else:
+                                                    # Store comparison data in session state for main dashboard to use
+                                                    st.session_state.comparison_data = comparison_data
+                                                    st.session_state.comparison_file1_name = file1_selection
+                                                    st.session_state.comparison_file2_name = file2_selection
+                                                    st.session_state.comparison_dataset_name = dataset
+                                                    
+                                                    # Store the original (pre-auto-sort) selections for dropdown persistence
+                                                    st.session_state.compare_file1_selection = original_file1_selection
+                                                    st.session_state.compare_file2_selection = original_file2_selection
+                                                    
+                                                    # Show success message and let main dashboard handle the display
+                                                    st.success(f"✅ Files loaded successfully! {dataset} Comparison data is ready.")
                                     
+                            except (KeyError, ValueError, AttributeError, IndexError) as e:
+                                # Handle validation/structure errors gracefully
+                                st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                                # Clear stored selections on error
+                                st.session_state.compare_file1_selection = None
+                                st.session_state.compare_file2_selection = None
+                                if 'comparison_dataset_name' in st.session_state:
+                                    del st.session_state.comparison_dataset_name
                             except Exception as e:
-                                st.error(f"❌ Error processing files for comparison: {e}")
+                                # Handle any other unexpected errors
+                                st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
                                 # Clear stored selections on error
                                 st.session_state.compare_file1_selection = None
                                 st.session_state.compare_file2_selection = None
@@ -1113,67 +1170,81 @@ def get_comparison_data_for_dashboard():
     Get comparison data formatted for the main dashboard display.
     Returns the comparison data with proper column formatting.
     """
-    if 'comparison_data' in st.session_state:
-        comparison_data = st.session_state.comparison_data.copy()
-        
-        # Store the zero difference information in session state for color coding
-        zero_diff_data = comparison_data[comparison_data['is_zero_difference'] == True]
-        st.session_state.comparison_zero_differences = zero_diff_data
-        
-        # Get file names for column renaming
-        file1_name = st.session_state.get('comparison_file1_name', 'File 1')
-        file2_name = st.session_state.get('comparison_file2_name', 'File 2')
-        
-        # Extract dates from file names
-        # New format: label is just date (YYYY-MM-DD) or date + time (YYYY-MM-DD HH:MM)
-        # Old format (for backward compatibility): "filename (YYYY-MM-DD)"
-        import re
-        # Try new format first (just date or date + time)
-        file1_date_match = re.search(r'(\d{4}-\d{2}-\d{2})', file1_name)
-        file2_date_match = re.search(r'(\d{4}-\d{2}-\d{2})', file2_name)
-        
-        # If not found, try old format (date in parentheses)
-        if not file1_date_match:
-            file1_date_match = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file1_name)
-        if not file2_date_match:
-            file2_date_match = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file2_name)
-        
-        file1_date_str = file1_date_match.group(1) if file1_date_match else "Unknown"
-        file2_date_str = file2_date_match.group(1) if file2_date_match else "Unknown"
-        
-        # Format stock values to 3 decimal places (keep numeric)
-        comparison_data['old_stock'] = pd.to_numeric(comparison_data['old_stock'], errors='coerce').fillna(0.0).round(3)
-        comparison_data['new_stock'] = pd.to_numeric(comparison_data['new_stock'], errors='coerce').fillna(0.0).round(3)
-        comparison_data['delta'] = pd.to_numeric(comparison_data['delta'], errors='coerce').fillna(0.0).round(3)
-        
-        # Apply the same column formatting as in the comparison tab
-        # Rename columns for better display
-        file1_display = file1_date_str if file1_date_str != "Unknown" else "File 1"
-        file2_display = file2_date_str if file2_date_str != "Unknown" else "File 2"
-        comparison_data = comparison_data.rename(columns={
-            'old_stock': f'MT ({file1_display})',
-            'new_stock': f'MT ({file2_display})',
-            'delta': 'Change in Stock',  # This creates the Change in Stock column from delta
-            'status': 'Status'
-        })
-        
-        # Remove internal columns and file name columns
-        columns_to_remove = ['product_key', 'is_zero_difference', 'file1_name', 'file2_name']
-        existing_columns_to_remove = [col for col in columns_to_remove if col in comparison_data.columns]
-        if existing_columns_to_remove:
-            comparison_data = comparison_data.drop(columns=existing_columns_to_remove)
-        
-        # Define preferred ordering for key columns (keep others for filtering)
-        desired_columns = [
-            'Specification', 'Grade', 'OD', 'WT', 'OD_Category', 'WT_Schedule',
-            f'MT ({file1_display})', f'MT ({file2_display})', 'Change in Stock', 'Status',
-            'Add_Spec', 'Make', 'Branch'
-        ]
-        ordered_columns = [col for col in desired_columns if col in comparison_data.columns]
-        remaining_columns = [col for col in comparison_data.columns if col not in ordered_columns]
-        comparison_data = comparison_data[ordered_columns + remaining_columns]
-        
-        # Include ALL items in heatmap (Added, Removed, Changed, Unchanged)
-        return comparison_data
-    else:
+    try:
+        if 'comparison_data' in st.session_state:
+            comparison_data = st.session_state.comparison_data.copy()
+            
+            # Validate required columns exist
+            required_cols = ['old_stock', 'new_stock', 'delta', 'status']
+            missing_cols = [col for col in required_cols if col not in comparison_data.columns]
+            if missing_cols:
+                return pd.DataFrame()  # Return empty DataFrame if structure invalid
+            
+            # Store the zero difference information in session state for color coding
+            if 'is_zero_difference' in comparison_data.columns:
+                zero_diff_data = comparison_data[comparison_data['is_zero_difference'] == True]
+                st.session_state.comparison_zero_differences = zero_diff_data
+            
+            # Get file names for column renaming
+            file1_name = st.session_state.get('comparison_file1_name', 'File 1')
+            file2_name = st.session_state.get('comparison_file2_name', 'File 2')
+            
+            # Extract dates from file names
+            # New format: label is just date (YYYY-MM-DD) or date + time (YYYY-MM-DD HH:MM)
+            # Old format (for backward compatibility): "filename (YYYY-MM-DD)"
+            import re
+            # Try new format first (just date or date + time)
+            file1_date_match = re.search(r'(\d{4}-\d{2}-\d{2})', file1_name)
+            file2_date_match = re.search(r'(\d{4}-\d{2}-\d{2})', file2_name)
+            
+            # If not found, try old format (date in parentheses)
+            if not file1_date_match:
+                file1_date_match = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file1_name)
+            if not file2_date_match:
+                file2_date_match = re.search(r'\((\d{4}-\d{2}-\d{2})\)', file2_name)
+            
+            file1_date_str = file1_date_match.group(1) if file1_date_match else "Unknown"
+            file2_date_str = file2_date_match.group(1) if file2_date_match else "Unknown"
+            
+            # Format stock values to 3 decimal places (keep numeric)
+            comparison_data['old_stock'] = pd.to_numeric(comparison_data['old_stock'], errors='coerce').fillna(0.0).round(3)
+            comparison_data['new_stock'] = pd.to_numeric(comparison_data['new_stock'], errors='coerce').fillna(0.0).round(3)
+            comparison_data['delta'] = pd.to_numeric(comparison_data['delta'], errors='coerce').fillna(0.0).round(3)
+            
+            # Apply the same column formatting as in the comparison tab
+            # Rename columns for better display
+            file1_display = file1_date_str if file1_date_str != "Unknown" else "File 1"
+            file2_display = file2_date_str if file2_date_str != "Unknown" else "File 2"
+            comparison_data = comparison_data.rename(columns={
+                'old_stock': f'MT ({file1_display})',
+                'new_stock': f'MT ({file2_display})',
+                'delta': 'Change in Stock',  # This creates the Change in Stock column from delta
+                'status': 'Status'
+            })
+            
+            # Remove internal columns and file name columns
+            columns_to_remove = ['product_key', 'is_zero_difference', 'file1_name', 'file2_name']
+            existing_columns_to_remove = [col for col in columns_to_remove if col in comparison_data.columns]
+            if existing_columns_to_remove:
+                comparison_data = comparison_data.drop(columns=existing_columns_to_remove)
+            
+            # Define preferred ordering for key columns (keep others for filtering)
+            desired_columns = [
+                'Specification', 'Grade', 'OD', 'WT', 'OD_Category', 'WT_Schedule',
+                f'MT ({file1_display})', f'MT ({file2_display})', 'Change in Stock', 'Status',
+                'Add_Spec', 'Make', 'Branch'
+            ]
+            ordered_columns = [col for col in desired_columns if col in comparison_data.columns]
+            remaining_columns = [col for col in comparison_data.columns if col not in ordered_columns]
+            comparison_data = comparison_data[ordered_columns + remaining_columns]
+            
+            # Include ALL items in heatmap (Added, Removed, Changed, Unchanged)
+            return comparison_data
+        else:
+            return pd.DataFrame()
+    except (KeyError, ValueError, AttributeError, IndexError):
+        # Handle validation errors gracefully - return empty DataFrame
+        return pd.DataFrame()
+    except Exception:
+        # Handle any other unexpected errors - return empty DataFrame
         return pd.DataFrame()

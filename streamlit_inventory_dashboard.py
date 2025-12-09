@@ -700,38 +700,56 @@ def categorize_WT_schedule(od, wt, grade):
 @st.cache_data
 def add_categorizations(df):
     """REAL OPTIMIZATION: Vectorized categorization for 3-5x faster performance"""
-    # Add OD_Category and WT_Schedule columns
-    # Use Grade_Logic if available, otherwise fall back to Grade
-    grade_col = 'Grade_Logic' if 'Grade_Logic' in df.columns else 'Grade'
-    
-    if 'OD' in df.columns and grade_col in df.columns:
-        # REAL OPTIMIZATION: Vectorized OD categorization - 3-5x faster than apply()
-        # Convert to numpy arrays for vectorized operations
-        od_values = df['OD'].values
-        grade_values = df[grade_col].values
+    try:
+        if df.empty:
+            return df
         
-        # Vectorized categorization using numpy operations
-        od_categories = []
-        for i in range(len(df)):
-            od_categories.append(categorize_OD(od_values[i], grade_values[i]))
-        df['OD_Category'] = od_categories
-    else:
-        df['OD_Category'] = "Unknown"
-    if 'OD' in df.columns and 'WT' in df.columns and grade_col in df.columns:
-        # REAL OPTIMIZATION: Vectorized WT categorization - 3-5x faster than apply()
-        # Convert to numpy arrays for vectorized operations
-        od_values = df['OD'].values
-        wt_values = df['WT'].values
-        grade_values = df[grade_col].values
+        # Add OD_Category and WT_Schedule columns
+        # Use Grade_Logic if available, otherwise fall back to Grade
+        grade_col = 'Grade_Logic' if 'Grade_Logic' in df.columns else 'Grade'
         
-        # Vectorized categorization using numpy operations
-        wt_schedules = []
-        for i in range(len(df)):
-            wt_schedules.append(categorize_WT_schedule(od_values[i], wt_values[i], grade_values[i]))
-        df['WT_Schedule'] = wt_schedules
-    else:
-        df['WT_Schedule'] = "Unknown"
-    return df
+        if 'OD' in df.columns and grade_col in df.columns:
+            # REAL OPTIMIZATION: Vectorized OD categorization - 3-5x faster than apply()
+            # Convert to numpy arrays for vectorized operations
+            od_values = df['OD'].values
+            grade_values = df[grade_col].values
+            
+            # Vectorized categorization using numpy operations
+            od_categories = []
+            for i in range(len(df)):
+                od_categories.append(categorize_OD(od_values[i], grade_values[i]))
+            df['OD_Category'] = od_categories
+        else:
+            df['OD_Category'] = "Unknown"
+        if 'OD' in df.columns and 'WT' in df.columns and grade_col in df.columns:
+            # REAL OPTIMIZATION: Vectorized WT categorization - 3-5x faster than apply()
+            # Convert to numpy arrays for vectorized operations
+            od_values = df['OD'].values
+            wt_values = df['WT'].values
+            grade_values = df[grade_col].values
+            
+            # Vectorized categorization using numpy operations
+            wt_schedules = []
+            for i in range(len(df)):
+                wt_schedules.append(categorize_WT_schedule(od_values[i], wt_values[i], grade_values[i]))
+            df['WT_Schedule'] = wt_schedules
+        else:
+            df['WT_Schedule'] = "Unknown"
+        return df
+    except (KeyError, ValueError, AttributeError, IndexError) as e:
+        # If categorization fails, return DataFrame with Unknown categories
+        if 'OD_Category' not in df.columns:
+            df['OD_Category'] = "Unknown"
+        if 'WT_Schedule' not in df.columns:
+            df['WT_Schedule'] = "Unknown"
+        return df
+    except Exception as e:
+        # Unexpected error - return DataFrame with Unknown categories
+        if 'OD_Category' not in df.columns:
+            df['OD_Category'] = "Unknown"
+        if 'WT_Schedule' not in df.columns:
+            df['WT_Schedule'] = "Unknown"
+        return df
 
 # --- Age Conversion Helper ---
 def convert_age_to_years(age_days):
@@ -763,77 +781,96 @@ def convert_age_to_years(age_days):
 
 # Helper to load all relevant sheets with optimized processing
 def load_inventory_data(file):
-    xls = pd.ExcelFile(file)
-    sheets = {}
+    """Load inventory data from Excel file with error handling"""
+    try:
+        xls = pd.ExcelFile(file)
+    except (ValueError, FileNotFoundError, IOError, Exception) as e:
+        # Invalid or corrupted Excel file
+        st.error("❌ Unable to read the Excel file. Please check if the file is valid and not corrupted.")
+        return {"Stock": pd.DataFrame(), "Incoming": pd.DataFrame(), "Reservations": pd.DataFrame()}
     
-    for sheet in ["Stock", "Incoming", "Reservations"]:
-        if sheet in xls.sheet_names:
-            # Try to read with different header rows to find the actual data
-            df_original = pd.read_excel(xls, sheet_name=sheet)
-            
-            # Check if the first row contains meaningful column names
-            first_row = df_original.iloc[0] if len(df_original) > 0 else pd.Series()
-            
-            # Special handling for Incoming sheet - try row 4 (Excel row 5) first if it's the Incoming sheet
-            if sheet == "Incoming":
-                try:
-                    df_incoming_row4 = pd.read_excel(xls, sheet_name=sheet, header=4)  # Excel row 5
-                    meaningful_cols = [col for col in df_incoming_row4.columns if not str(col).startswith('Unnamed:') and str(col) != 'nan']
-                    if len(meaningful_cols) >= 5:
-                        df_original = df_incoming_row4
-                        first_row = df_original.iloc[0] if len(df_original) > 0 else pd.Series()
-                except:
-                    pass  # Fall back to normal detection
-            
-            # If first row has mostly unnamed columns, try reading with different header rows
-            if any('Unnamed:' in str(col) for col in df_original.columns) or len(first_row) == 0:
-                # Try different header rows (rows 0, 1, 2, 3, 4, 5) to handle various header positions
-                # This covers: row 1, 2, 3, 4, 5, 6 in Excel (0-indexed in Python)
-                for header_row in range(6):
-                    try:
-                        df = pd.read_excel(xls, sheet_name=sheet, header=header_row)
-                        # Check if this gives us meaningful column names
-                        meaningful_cols = [col for col in df.columns if not str(col).startswith('Unnamed:') and str(col) != 'nan']
+    try:
+        sheets = {}
+        
+        for sheet in ["Stock", "Incoming", "Reservations"]:
+            try:
+                if sheet in xls.sheet_names:
+                    # Try to read with different header rows to find the actual data
+                    df_original = pd.read_excel(xls, sheet_name=sheet)
+                    
+                    # Check if the first row contains meaningful column names
+                    first_row = df_original.iloc[0] if len(df_original) > 0 else pd.Series()
+                    
+                    # Special handling for Incoming sheet - try row 4 (Excel row 5) first if it's the Incoming sheet
+                    if sheet == "Incoming":
+                        try:
+                            df_incoming_row4 = pd.read_excel(xls, sheet_name=sheet, header=4)  # Excel row 5
+                            meaningful_cols = [col for col in df_incoming_row4.columns if not str(col).startswith('Unnamed:') and str(col) != 'nan']
+                            if len(meaningful_cols) >= 5:
+                                df_original = df_incoming_row4
+                                first_row = df_original.iloc[0] if len(df_original) > 0 else pd.Series()
+                        except:
+                            pass  # Fall back to normal detection
+                    
+                    # If first row has mostly unnamed columns, try reading with different header rows
+                    if any('Unnamed:' in str(col) for col in df_original.columns) or len(first_row) == 0:
+                        # Try different header rows (rows 0, 1, 2, 3, 4, 5) to handle various header positions
+                        # This covers: row 1, 2, 3, 4, 5, 6 in Excel (0-indexed in Python)
+                        for header_row in range(6):
+                            try:
+                                df = pd.read_excel(xls, sheet_name=sheet, header=header_row)
+                                # Check if this gives us meaningful column names
+                                meaningful_cols = [col for col in df.columns if not str(col).startswith('Unnamed:') and str(col) != 'nan']
+                                
+                                if len(meaningful_cols) >= 5:  # At least 5 meaningful columns
+                                    break
+                            except:
+                                continue
+                        else:
+                            # If no good headers found, use original
+                            df = df_original
+                    else:
+                        df = df_original
+                    
+                    # Optimized column name standardization using vectorized operations
+                    df.columns = [str(c).strip().replace(" ", "_").replace(".", "").replace("-", "_") for c in df.columns]
+                    
+                    # Standardize additional spec column names to "Add_Spec" for all sheets
+                    add_spec_columns = [c for c in df.columns if c.lower() in ["add_spec", "addlspec", "addlspec", "additional_spec", "add_spec", "additional_spec"]]
+                    # Also check for the standardized version (AddlSpec becomes AddlSpec after dot removal)
+                    if not add_spec_columns:
+                        add_spec_columns = [c for c in df.columns if "addlspec" in c.lower()]
+                    if add_spec_columns:
+                        # Rename the first found additional spec column to "Add_Spec"
+                        df = df.rename(columns={add_spec_columns[0]: "Add_Spec"})
+                    
+                    # Optimized Grade derivation using vectorized operations
+                    if 'Grade' not in df.columns and 'Specification' in df.columns:
+                        # Add Grade column derived from Specification (for display)
+                        df['Grade'] = df['Specification'].apply(derive_grade_from_spec, combine_cs_as=False)
                         
-                        if len(meaningful_cols) >= 5:  # At least 5 meaningful columns
-                            break
-                    except:
-                        continue
+                        # Add Grade_Logic column for internal categorization (CS & AS combined)
+                        df['Grade_Logic'] = df['Specification'].apply(derive_grade_from_spec, combine_cs_as=True)
+                    
+                    # Optimized data cleaning using vectorized operations
+                    df = df.dropna(how='all')  # Remove completely empty rows
+                    df = df.fillna('')  # Fill NaN values with empty string
+                    
+                    sheets[sheet] = df
                 else:
-                    # If no good headers found, use original
-                    df = df_original
-            else:
-                df = df_original
-            
-            # Optimized column name standardization using vectorized operations
-            df.columns = [str(c).strip().replace(" ", "_").replace(".", "").replace("-", "_") for c in df.columns]
-            
-            # Standardize additional spec column names to "Add_Spec" for all sheets
-            add_spec_columns = [c for c in df.columns if c.lower() in ["add_spec", "addlspec", "addlspec", "additional_spec", "add_spec", "additional_spec"]]
-            # Also check for the standardized version (AddlSpec becomes AddlSpec after dot removal)
-            if not add_spec_columns:
-                add_spec_columns = [c for c in df.columns if "addlspec" in c.lower()]
-            if add_spec_columns:
-                # Rename the first found additional spec column to "Add_Spec"
-                df = df.rename(columns={add_spec_columns[0]: "Add_Spec"})
-            
-            # Optimized Grade derivation using vectorized operations
-            if 'Grade' not in df.columns and 'Specification' in df.columns:
-                # Add Grade column derived from Specification (for display)
-                df['Grade'] = df['Specification'].apply(derive_grade_from_spec, combine_cs_as=False)
-                
-                # Add Grade_Logic column for internal categorization (CS & AS combined)
-                df['Grade_Logic'] = df['Specification'].apply(derive_grade_from_spec, combine_cs_as=True)
-            
-            # Optimized data cleaning using vectorized operations
-            df = df.dropna(how='all')  # Remove completely empty rows
-            df = df.fillna('')  # Fill NaN values with empty string
-            
-            sheets[sheet] = df
-        else:
-            sheets[sheet] = pd.DataFrame()
-    
-    return sheets
+                    sheets[sheet] = pd.DataFrame()
+            except (ValueError, KeyError, AttributeError, IndexError) as e:
+                # Error reading specific sheet - return empty DataFrame for this sheet
+                sheets[sheet] = pd.DataFrame()
+            except Exception as e:
+                # Unexpected error reading sheet - return empty DataFrame for this sheet
+                sheets[sheet] = pd.DataFrame()
+        
+        return sheets
+    except Exception as e:
+        # Unexpected error during processing - return empty sheets dict
+        st.error("❌ An error occurred while processing the Excel file. Please check the file structure.")
+        return {"Stock": pd.DataFrame(), "Incoming": pd.DataFrame(), "Reservations": pd.DataFrame()}
 
 # Placeholders for filter options (to be populated after file upload)
 make_options = ["All"]
@@ -941,15 +978,33 @@ if data_file is not None:
         # Set filter options from collected values
         if all_od_values:
             # Round to 3 decimal places to avoid floating point precision issues
-            od_rounded = [round(float(x), 3) for x in all_od_values]
-            # Sort numerically, then convert to strings
-            od_options = ["All"] + [str(x) for x in sorted(od_rounded)]
+            # Handle empty strings and invalid values gracefully
+            od_rounded = []
+            for x in all_od_values:
+                try:
+                    if str(x).strip():  # Skip empty strings
+                        od_rounded.append(round(float(x), 3))
+                except (ValueError, TypeError):
+                    # Skip invalid values that can't be converted to float
+                    continue
+            if od_rounded:
+                # Sort numerically, then convert to strings
+                od_options = ["All"] + [str(x) for x in sorted(od_rounded)]
         
         if all_wt_values:
             # Round to 3 decimal places to avoid floating point precision issues
-            wt_rounded = [round(float(x), 3) for x in all_wt_values]
-            # Sort numerically, then convert to strings
-            wt_options = ["All"] + [str(x) for x in sorted(wt_rounded)]
+            # Handle empty strings and invalid values gracefully
+            wt_rounded = []
+            for x in all_wt_values:
+                try:
+                    if str(x).strip():  # Skip empty strings
+                        wt_rounded.append(round(float(x), 3))
+                except (ValueError, TypeError):
+                    # Skip invalid values that can't be converted to float
+                    continue
+            if wt_rounded:
+                # Sort numerically, then convert to strings
+                wt_options = ["All"] + [str(x) for x in sorted(wt_rounded)]
         
         if all_branch_values:
             branch_options = ["All"] + sorted(list(all_branch_values))
@@ -1211,13 +1266,14 @@ if data_file is not None:
         df = sheets.get("Reservations", pd.DataFrame())
     elif size_chart_type == "Free For Sale":
         # Calculate Free For Sale = Stock - Reserved + Incoming
-        stock_df = sheets.get("Stock", pd.DataFrame())
-        reserved_df = sheets.get("Reservations", pd.DataFrame())
-        incoming_df = sheets.get("Incoming", pd.DataFrame())
-        
-        if not stock_df.empty or not reserved_df.empty or not incoming_df.empty:
-            # Combine all data with type indicator
-            combined_data = []
+        try:
+            stock_df = sheets.get("Stock", pd.DataFrame())
+            reserved_df = sheets.get("Reservations", pd.DataFrame())
+            incoming_df = sheets.get("Incoming", pd.DataFrame())
+            
+            if not stock_df.empty or not reserved_df.empty or not incoming_df.empty:
+                # Combine all data with type indicator
+                combined_data = []
             
             if not stock_df.empty:
                 stock_df_copy = stock_df.copy()
@@ -1426,7 +1482,13 @@ if data_file is not None:
                     df = pd.DataFrame()
             else:
                 df = pd.DataFrame()
-        else:
+        except (KeyError, ValueError, AttributeError, IndexError) as e:
+            # If Free For Sale calculation fails, return empty DataFrame
+            st.error("❌ An error occurred while calculating Free For Sale. Please check the file structure.")
+            df = pd.DataFrame()
+        except Exception as e:
+            # Unexpected error during Free For Sale calculation
+            st.error("❌ An error occurred while processing Free For Sale data. Please check the file structure.")
             df = pd.DataFrame()
     else:
         df = sheets.get(size_chart_type, pd.DataFrame())
@@ -1487,203 +1549,214 @@ if data_file is not None:
                 return data_str == search_str
         
         def apply_filters(df):
-            filtered = df.copy()
-            # Make - Filter logic: handle comma-separated values and single values
-            # Skip Make filter for Incoming chart type (like Free for Sale)
-            if 'Make' in filtered.columns and make_filter and size_chart_type != "Incoming":
-                if "All" in make_filter:
-                    # If "All" is selected, exclude any other specific values
-                    exclude_values = [v for v in make_filter if v != "All"]
-                    if exclude_values:
+            try:
+                filtered = df.copy()
+                # Make - Filter logic: handle comma-separated values and single values
+                # Skip Make filter for Incoming chart type (like Free for Sale)
+                if 'Make' in filtered.columns and make_filter and size_chart_type != "Incoming":
+                    if "All" in make_filter:
+                        # If "All" is selected, exclude any other specific values
+                        exclude_values = [v for v in make_filter if v != "All"]
+                        if exclude_values:
+                            # REAL OPTIMIZATION: Vectorized make filtering - 3-5x faster than apply()
+                            make_values = filtered['Make'].astype(str).values
+                            mask = np.ones(len(filtered), dtype=bool)
+                            
+                            for i, make_val in enumerate(make_values):
+                                for exclude_make in exclude_values:
+                                    if check_make_match(make_val, exclude_make):
+                                        mask[i] = False
+                                        break
+                            
+                            filtered = filtered[mask]
+                    else:
+                        # If "All" is not selected, show records that contain any of the selected makes
                         # REAL OPTIMIZATION: Vectorized make filtering - 3-5x faster than apply()
                         make_values = filtered['Make'].astype(str).values
-                        mask = np.ones(len(filtered), dtype=bool)
+                        mask = np.zeros(len(filtered), dtype=bool)
                         
                         for i, make_val in enumerate(make_values):
-                            for exclude_make in exclude_values:
-                                if check_make_match(make_val, exclude_make):
-                                    mask[i] = False
+                            for selected_make in make_filter:
+                                if check_make_match(make_val, selected_make):
+                                    mask[i] = True
                                     break
                         
                         filtered = filtered[mask]
-                else:
-                    # If "All" is not selected, show records that contain any of the selected makes
-                    # REAL OPTIMIZATION: Vectorized make filtering - 3-5x faster than apply()
-                    make_values = filtered['Make'].astype(str).values
-                    mask = np.zeros(len(filtered), dtype=bool)
-                    
-                    for i, make_val in enumerate(make_values):
-                        for selected_make in make_filter:
-                            if check_make_match(make_val, selected_make):
-                                mask[i] = True
-                                break
-                    
-                    filtered = filtered[mask]
-            # OD - Same logic
-            if 'OD' in filtered.columns and od_filter:
-                if "All" in od_filter:
-                    exclude_values = [v for v in od_filter if v != "All"]
-                    if exclude_values:
-                        filtered = filtered[~filtered['OD'].astype(str).isin(exclude_values)]
-                else:
-                    filtered = filtered[filtered['OD'].astype(str).isin(od_filter)]
-            # WT - Same logic
-            if 'WT' in filtered.columns and wt_filter:
-                if "All" in wt_filter:
-                    exclude_values = [v for v in wt_filter if v != "All"]
-                    if exclude_values:
-                        filtered = filtered[~filtered['WT'].astype(str).isin(exclude_values)]
-                else:
-                    filtered = filtered[filtered['WT'].astype(str).isin(wt_filter)]
-            # Grade Type filtering is now handled automatically through Specification filter
-            # Specification - Primary filter (replaces Grade Type)
-            if 'Specification' in filtered.columns and spec_filter:
-                if "All" in spec_filter:
-                    exclude_values = [v for v in spec_filter if v != "All"]
-                    if exclude_values:
-                        filtered = filtered[~filtered['Specification'].astype(str).str.strip().isin(exclude_values)]
-                else:
-                    filtered = filtered[filtered['Specification'].astype(str).str.strip().isin(spec_filter)]
-            # Additional Spec - Contains matching logic for individual specs
-            add_spec_col_name = "Add_Spec"  # Now standardized to "Add_Spec" for all sheets
-            if add_spec_col_name in filtered.columns and add_spec_filter:
-                if "All" in add_spec_filter:
-                    exclude_values = [v for v in add_spec_filter if v != "All"]
-                    if exclude_values:
-                        # REAL OPTIMIZATION: Vectorized additional spec filtering - 3-5x faster than apply()
-                        add_spec_values = filtered[add_spec_col_name].astype(str).values
-                        mask = np.ones(len(filtered), dtype=bool)
-                        
-                        for i, add_spec_val in enumerate(add_spec_values):
-                            for exclude_spec in exclude_values:
-                                if check_word_boundary_match(add_spec_val, exclude_spec):
-                                    mask[i] = False
-                                    break
-                        
-                        filtered = filtered[mask]
-                else:
-                    # Contains matching logic: show records that contain the selected spec(s)
-                    if len(add_spec_filter) == 1:
-                        # Single selection: show all records that contain this spec as a complete word
-                        selected_spec = add_spec_filter[0].strip()
-                        # REAL OPTIMIZATION: Vectorized single spec filtering - 3-5x faster than apply()
-                        add_spec_values = filtered[add_spec_col_name].astype(str).values
-                        mask = np.zeros(len(filtered), dtype=bool)
-                        
-                        for i, add_spec_val in enumerate(add_spec_values):
-                            if check_word_boundary_match(add_spec_val, selected_spec):
-                                mask[i] = True
-                        
-                        filtered = filtered[mask]
+                # OD - Same logic
+                if 'OD' in filtered.columns and od_filter:
+                    if "All" in od_filter:
+                        exclude_values = [v for v in od_filter if v != "All"]
+                        if exclude_values:
+                            filtered = filtered[~filtered['OD'].astype(str).isin(exclude_values)]
                     else:
-                        # Multiple selections: show records that contain ALL selected specs (in any order)
-                        def check_contains_all_specs(data_value, selected_specs):
-                            """Check if data value contains ALL the selected specs (in any order)"""
-                            data_value_str = str(data_value).strip()
-                            # Check if all selected specs are present in the data value as complete words
-                            return all(check_word_boundary_match(data_value_str, spec.strip()) for spec in selected_specs)
+                        filtered = filtered[filtered['OD'].astype(str).isin(od_filter)]
+                # WT - Same logic
+                if 'WT' in filtered.columns and wt_filter:
+                    if "All" in wt_filter:
+                        exclude_values = [v for v in wt_filter if v != "All"]
+                        if exclude_values:
+                            filtered = filtered[~filtered['WT'].astype(str).isin(exclude_values)]
+                    else:
+                        filtered = filtered[filtered['WT'].astype(str).isin(wt_filter)]
+                # Grade Type filtering is now handled automatically through Specification filter
+                # Specification - Primary filter (replaces Grade Type)
+                if 'Specification' in filtered.columns and spec_filter:
+                    if "All" in spec_filter:
+                        exclude_values = [v for v in spec_filter if v != "All"]
+                        if exclude_values:
+                            filtered = filtered[~filtered['Specification'].astype(str).str.strip().isin(exclude_values)]
+                    else:
+                        filtered = filtered[filtered['Specification'].astype(str).str.strip().isin(spec_filter)]
+                # Additional Spec - Contains matching logic for individual specs
+                add_spec_col_name = "Add_Spec"  # Now standardized to "Add_Spec" for all sheets
+                if add_spec_col_name in filtered.columns and add_spec_filter:
+                    if "All" in add_spec_filter:
+                        exclude_values = [v for v in add_spec_filter if v != "All"]
+                        if exclude_values:
+                            # REAL OPTIMIZATION: Vectorized additional spec filtering - 3-5x faster than apply()
+                            add_spec_values = filtered[add_spec_col_name].astype(str).values
+                            mask = np.ones(len(filtered), dtype=bool)
+                            
+                            for i, add_spec_val in enumerate(add_spec_values):
+                                for exclude_spec in exclude_values:
+                                    if check_word_boundary_match(add_spec_val, exclude_spec):
+                                        mask[i] = False
+                                        break
+                            
+                            filtered = filtered[mask]
+                    else:
+                        # Contains matching logic: show records that contain the selected spec(s)
+                        if len(add_spec_filter) == 1:
+                            # Single selection: show all records that contain this spec as a complete word
+                            selected_spec = add_spec_filter[0].strip()
+                            # REAL OPTIMIZATION: Vectorized single spec filtering - 3-5x faster than apply()
+                            add_spec_values = filtered[add_spec_col_name].astype(str).values
+                            mask = np.zeros(len(filtered), dtype=bool)
+                            
+                            for i, add_spec_val in enumerate(add_spec_values):
+                                if check_word_boundary_match(add_spec_val, selected_spec):
+                                    mask[i] = True
+                            
+                            filtered = filtered[mask]
+                        else:
+                            # Multiple selections: show records that contain ALL selected specs (in any order)
+                            def check_contains_all_specs(data_value, selected_specs):
+                                """Check if data value contains ALL the selected specs (in any order)"""
+                                data_value_str = str(data_value).strip()
+                                # Check if all selected specs are present in the data value as complete words
+                                return all(check_word_boundary_match(data_value_str, spec.strip()) for spec in selected_specs)
+                            
+                            # REAL OPTIMIZATION: Vectorized multiple spec filtering - 3-5x faster than apply()
+                            add_spec_values = filtered[add_spec_col_name].astype(str).values
+                            mask = np.zeros(len(filtered), dtype=bool)
+                            
+                            for i, add_spec_val in enumerate(add_spec_values):
+                                if check_contains_all_specs(add_spec_val, add_spec_filter):
+                                    mask[i] = True
+                            
+                            filtered = filtered[mask]
+                # Branch - Same logic
+                if 'Branch' in filtered.columns and branch_filter:
+                    if "All" in branch_filter:
+                        exclude_values = [v for v in branch_filter if v != "All"]
+                        if exclude_values:
+                            filtered = filtered[~filtered['Branch'].astype(str).isin(exclude_values)]
+                    else:
+                        filtered = filtered[filtered['Branch'].astype(str).isin(branch_filter)]
+                # OD Category - Same logic
+                if 'OD_Category' in filtered.columns and od_category_filter:
+                    if "All" in od_category_filter:
+                        exclude_values = [v for v in od_category_filter if v != "All"]
+                        if exclude_values:
+                            filtered = filtered[~filtered['OD_Category'].astype(str).isin(exclude_values)]
+                    else:
+                        filtered = filtered[filtered['OD_Category'].astype(str).isin(od_category_filter)]
+                # WT Category - Same logic
+                if 'WT_Schedule' in filtered.columns and wt_category_filter:
+                    if "All" in wt_category_filter:
+                        exclude_values = [v for v in wt_category_filter if v != "All"]
+                        if exclude_values:
+                            filtered = filtered[~filtered['WT_Schedule'].astype(str).isin(exclude_values)]
+                    else:
+                        filtered = filtered[filtered['WT_Schedule'].astype(str).isin(wt_category_filter)]
+                
+                # Incoming Filter - Apply customer filter for Incoming chart type
+                if size_chart_type == "Incoming" and 'CUSTOMER' in filtered.columns:
+                    incoming_filter = st.session_state.get('incoming_filter', 'ALL INCOMING')
+                    
+                    if incoming_filter == "FOR STOCK":
+                        # Show rows where CUSTOMER contains "STOCK" (case-insensitive)
+                        def is_stock_customer(customer_value):
+                            if pd.isna(customer_value):
+                                return False
+                            customer_str = str(customer_value).strip().upper()
+                            return "STOCK" in customer_str
                         
-                        # REAL OPTIMIZATION: Vectorized multiple spec filtering - 3-5x faster than apply()
-                        add_spec_values = filtered[add_spec_col_name].astype(str).values
+                        # REAL OPTIMIZATION: Vectorized customer filtering - 3-5x faster than apply()
+                        customer_values = filtered['CUSTOMER'].astype(str).values
                         mask = np.zeros(len(filtered), dtype=bool)
                         
-                        for i, add_spec_val in enumerate(add_spec_values):
-                            if check_contains_all_specs(add_spec_val, add_spec_filter):
+                        for i, customer_val in enumerate(customer_values):
+                            if is_stock_customer(customer_val):
                                 mask[i] = True
                         
                         filtered = filtered[mask]
-            # Branch - Same logic
-            if 'Branch' in filtered.columns and branch_filter:
-                if "All" in branch_filter:
-                    exclude_values = [v for v in branch_filter if v != "All"]
-                    if exclude_values:
-                        filtered = filtered[~filtered['Branch'].astype(str).isin(exclude_values)]
-                else:
-                    filtered = filtered[filtered['Branch'].astype(str).isin(branch_filter)]
-            # OD Category - Same logic
-            if 'OD_Category' in filtered.columns and od_category_filter:
-                if "All" in od_category_filter:
-                    exclude_values = [v for v in od_category_filter if v != "All"]
-                    if exclude_values:
-                        filtered = filtered[~filtered['OD_Category'].astype(str).isin(exclude_values)]
-                else:
-                    filtered = filtered[filtered['OD_Category'].astype(str).isin(od_category_filter)]
-            # WT Category - Same logic
-            if 'WT_Schedule' in filtered.columns and wt_category_filter:
-                if "All" in wt_category_filter:
-                    exclude_values = [v for v in wt_category_filter if v != "All"]
-                    if exclude_values:
-                        filtered = filtered[~filtered['WT_Schedule'].astype(str).isin(exclude_values)]
-                else:
-                    filtered = filtered[filtered['WT_Schedule'].astype(str).isin(wt_category_filter)]
-            
-            # Incoming Filter - Apply customer filter for Incoming chart type
-            if size_chart_type == "Incoming" and 'CUSTOMER' in filtered.columns:
-                incoming_filter = st.session_state.get('incoming_filter', 'ALL INCOMING')
-                
-                if incoming_filter == "FOR STOCK":
-                    # Show rows where CUSTOMER contains "STOCK" (case-insensitive)
-                    def is_stock_customer(customer_value):
-                        if pd.isna(customer_value):
-                            return False
-                        customer_str = str(customer_value).strip().upper()
-                        return "STOCK" in customer_str
                     
-                    # REAL OPTIMIZATION: Vectorized customer filtering - 3-5x faster than apply()
-                    customer_values = filtered['CUSTOMER'].astype(str).values
-                    mask = np.zeros(len(filtered), dtype=bool)
-                    
-                    for i, customer_val in enumerate(customer_values):
-                        if is_stock_customer(customer_val):
-                            mask[i] = True
-                    
-                    filtered = filtered[mask]
-                
-                elif incoming_filter == "FOR CUSTOMERS":
-                    # Show rows where CUSTOMER does NOT contain "STOCK" (case-insensitive)
-                    def is_customer_order(customer_value):
-                        if pd.isna(customer_value):
-                            return False
-                        customer_str = str(customer_value).strip().upper()
-                        return "STOCK" not in customer_str
-                    
-                    # REAL OPTIMIZATION: Vectorized customer filtering - 3-5x faster than apply()
-                    customer_values = filtered['CUSTOMER'].astype(str).values
-                    mask = np.zeros(len(filtered), dtype=bool)
-                    
-                    for i, customer_val in enumerate(customer_values):
-                        if is_customer_order(customer_val):
-                            mask[i] = True
-                    
-                    filtered = filtered[mask]
-                
-                # If "ALL INCOMING" is selected, no filtering is applied (show all data)
-            
-            # Month Filter - Apply month filter for Incoming chart type based on Delivery_as_on_Date
-            if size_chart_type == "Incoming" and 'Delivery_as_on_Date' in filtered.columns:
-                month_filter = st.session_state.get('incoming_month_filter', None)
-                
-                if month_filter is not None:
-                    # month_filter format: "YYYY-MM" (e.g., "2024-11")
-                    try:
-                        # Extract year and month from the filter
-                        filter_year, filter_month = map(int, month_filter.split('-'))
+                    elif incoming_filter == "FOR CUSTOMERS":
+                        # Show rows where CUSTOMER does NOT contain "STOCK" (case-insensitive)
+                        def is_customer_order(customer_value):
+                            if pd.isna(customer_value):
+                                return False
+                            customer_str = str(customer_value).strip().upper()
+                            return "STOCK" not in customer_str
                         
-                        # Filter data where Delivery_as_on_Date matches the selected month and year
-                        # Handle NaT (Not a Time) values by excluding them
-                        mask = (
-                            filtered['Delivery_as_on_Date'].notna() &
-                            (filtered['Delivery_as_on_Date'].dt.year == filter_year) &
-                            (filtered['Delivery_as_on_Date'].dt.month == filter_month)
-                        )
+                        # REAL OPTIMIZATION: Vectorized customer filtering - 3-5x faster than apply()
+                        customer_values = filtered['CUSTOMER'].astype(str).values
+                        mask = np.zeros(len(filtered), dtype=bool)
+                        
+                        for i, customer_val in enumerate(customer_values):
+                            if is_customer_order(customer_val):
+                                mask[i] = True
+                        
                         filtered = filtered[mask]
-                    except Exception:
-                        # If filtering fails, show all data
-                        pass
-            
-            return filtered
+                    
+                    # If "ALL INCOMING" is selected, no filtering is applied (show all data)
+                
+                # Month Filter - Apply month filter for Incoming chart type based on Delivery_as_on_Date
+                if size_chart_type == "Incoming" and 'Delivery_as_on_Date' in filtered.columns:
+                    month_filter = st.session_state.get('incoming_month_filter', None)
+                    
+                    if month_filter is not None:
+                        # month_filter format: "YYYY-MM" (e.g., "2024-11")
+                        try:
+                            # Extract year and month from the filter
+                            filter_year, filter_month = map(int, month_filter.split('-'))
+                            
+                            # Filter data where Delivery_as_on_Date matches the selected month and year
+                            # Handle NaT (Not a Time) values by excluding them
+                            mask = (
+                                filtered['Delivery_as_on_Date'].notna() &
+                                (filtered['Delivery_as_on_Date'].dt.year == filter_year) &
+                                (filtered['Delivery_as_on_Date'].dt.month == filter_month)
+                            )
+                            filtered = filtered[mask]
+                        except Exception:
+                            # If filtering fails, show all data
+                            pass
+                
+                return filtered
+            except (KeyError, ValueError, AttributeError, IndexError) as e:
+                # If filtering fails due to data structure issues, return original DataFrame
+                return df
+            except Exception as e:
+                # Unexpected error during filtering - return original DataFrame
+                return df
 
-        df_filtered = apply_filters(df_cat)
+        try:
+            df_filtered = apply_filters(df_cat)
+        except Exception as e:
+            # If filter application fails completely, use original categorized data
+            df_filtered = df_cat
 
         # --- Pivot Table (with Totals, Color Formatting) ---
         # Get the current incoming filter for display in headings
@@ -1886,8 +1959,17 @@ if data_file is not None:
             import itertools
             base_index = pd.MultiIndex.from_product([OD_ORDER, wt_schedule], names=["OD_Category", "WT_Schedule"])
             df_base = pd.DataFrame(index=base_index).reset_index()
-            # Group and sum
-            grouped = df_filtered.groupby(["OD_Category", "WT_Schedule"])[metric_col].sum().reset_index()
+            # Group and sum - ensure metric column is numeric before summing
+            try:
+                # Convert metric column to numeric, handling any non-numeric values
+                if metric_col in df_filtered.columns:
+                    df_filtered[metric_col] = pd.to_numeric(df_filtered[metric_col], errors='coerce').fillna(0)
+                grouped = df_filtered.groupby(["OD_Category", "WT_Schedule"])[metric_col].sum().reset_index()
+            except (ValueError, TypeError) as e:
+                # If conversion or sum fails, use 0 for all values
+                st.error("❌ An error occurred while processing the data. Please check that numeric columns contain valid values.")
+                grouped = df_base.copy()
+                grouped[metric_col] = 0
             merged = pd.merge(df_base, grouped, on=["OD_Category", "WT_Schedule"], how="left").fillna(0)
             # Pivot
             pivot = merged.pivot(index="OD_Category", columns="WT_Schedule", values=metric_col)
@@ -2302,7 +2384,19 @@ if data_file is not None:
         elif size_chart_type == "Compare Files":
             # Apply color coding and numeric formatting for comparison data
             def color_rows_by_status(row):
-                status = row['Status']
+                # Safely access Status column - handle missing column gracefully
+                # pandas Series passed with axis=1, so use try-except for KeyError
+                try:
+                    # Try direct access first (most common case)
+                    status = row['Status']
+                except (KeyError, AttributeError, IndexError):
+                    # If Status column doesn't exist, default to Unknown
+                    try:
+                        # Try using .get() if available (some pandas versions)
+                        status = row.get('Status', 'Unknown')
+                    except (AttributeError, KeyError):
+                        status = 'Unknown'
+                
                 if status == 'Added':
                     return ['background-color: #E8F5E8; color: #000000;'] * len(row)
                 elif status == 'Removed':
@@ -2311,7 +2405,7 @@ if data_file is not None:
                     return ['background-color: #E8F5E8; color: #000000;'] * len(row)
                 elif status == 'Decreased':
                     return ['background-color: #FCE4EC; color: #000000;'] * len(row)
-                else:  # Unchanged
+                else:  # Unchanged or Unknown
                     return ['background-color: #FFF8E1; color: #000000;'] * len(row)
 
             def positive_with_sign(value):
@@ -2326,18 +2420,29 @@ if data_file is not None:
                 else:
                     return f"{numeric_value:.3f}"
 
-            od_wt_subset = [col for col in ['OD (mm)', 'WT (mm)'] if col in df_underlying.columns]
-            file_mt_subset = [col for col in df_underlying.columns if col.startswith('MT (')]
-            change_subset = [col for col in ['Change in Stock'] if col in df_underlying.columns]
+            # Validate required columns exist before styling
+            if 'Status' not in df_underlying.columns:
+                # If Status column missing, show error message instead of crashing
+                st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                df_display_final = df_underlying.style  # Return unstyled dataframe
+            else:
+                od_wt_subset = [col for col in ['OD (mm)', 'WT (mm)'] if col in df_underlying.columns]
+                file_mt_subset = [col for col in df_underlying.columns if col.startswith('MT (')]
+                change_subset = [col for col in ['Change in Stock'] if col in df_underlying.columns]
 
-            style_obj = df_underlying.style.apply(color_rows_by_status, axis=1)
-            if od_wt_subset:
-                style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
-            if file_mt_subset:
-                style_obj = style_obj.format("{:.3f}", subset=file_mt_subset)
-            if change_subset:
-                style_obj = style_obj.format(positive_with_sign, subset=change_subset)
-            df_display_final = style_obj
+                try:
+                    style_obj = df_underlying.style.apply(color_rows_by_status, axis=1)
+                    if od_wt_subset:
+                        style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
+                    if file_mt_subset:
+                        style_obj = style_obj.format("{:.3f}", subset=file_mt_subset)
+                    if change_subset:
+                        style_obj = style_obj.format(positive_with_sign, subset=change_subset)
+                    df_display_final = style_obj
+                except (KeyError, ValueError, AttributeError) as e:
+                    # Handle styling errors gracefully
+                    st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                    df_display_final = df_underlying.style  # Return unstyled dataframe
         else:
             # For all other chart types, apply formatting
             if size_chart_type == "Free For Sale":
@@ -2356,7 +2461,42 @@ if data_file is not None:
                 df_display_final = df_underlying.style.format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)']).format("{:.3f}", subset=['MT'])
         
         with st.spinner("Generating Table..."):
-            st.dataframe(df_display_final)
+            try:
+                st.dataframe(df_display_final)
+            except (KeyError, ValueError, AttributeError, IndexError) as e:
+                # Handle errors during dataframe rendering (e.g., missing columns in styling)
+                if size_chart_type == "Compare Files":
+                    st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                else:
+                    st.error("❌ An error occurred while displaying the data. Please try refreshing the page.")
+                # Try to display unstyled dataframe as fallback
+                try:
+                    if hasattr(df_display_final, 'data'):
+                        st.dataframe(df_display_final.data)
+                    else:
+                        st.dataframe(df_display_final)
+                except:
+                    if size_chart_type == "Compare Files":
+                        st.error("❌ Unable to display comparison data. Please check the file structure.")
+                    else:
+                        st.error("❌ Unable to display data. Please try refreshing the page.")
+            except Exception as e:
+                # Handle any other unexpected errors during rendering
+                if size_chart_type == "Compare Files":
+                    st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                else:
+                    st.error("❌ An error occurred while displaying the data. Please try refreshing the page.")
+                # Try to display unstyled dataframe as fallback
+                try:
+                    if hasattr(df_display_final, 'data'):
+                        st.dataframe(df_display_final.data)
+                    else:
+                        st.dataframe(df_display_final)
+                except:
+                    if size_chart_type == "Compare Files":
+                        st.error("❌ Unable to display comparison data. Please check the file structure.")
+                    else:
+                        st.error("❌ Unable to display data. Please try refreshing the page.")
         
         # Add Product Age bar chart for Stock chart type only
         if size_chart_type == "Stock" and 'Product Age' in df_filtered_display.data.columns:
