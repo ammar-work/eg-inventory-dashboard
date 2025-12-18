@@ -17,38 +17,38 @@ load_dotenv()  # this loads variables from .env into os.environ
 
 # --- Token Authentication ---
 # Check for authentication token
-params = st.query_params
-auth_token = params.get('auth_token', None)
+# params = st.query_params
+# auth_token = params.get('auth_token', None)
 
-# Verify token
-if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
-    # Set page config for unauthorized access
-    st.set_page_config(page_title="Access Denied", layout="centered")
+# # Verify token
+# if not auth_token or auth_token != st.secrets.get("SECRET_TOKEN"):
+#     # Set page config for unauthorized access
+#     st.set_page_config(page_title="Access Denied", layout="centered")
     
-    # Hide Streamlit branding on access denied page
-    st.markdown("""
-    <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        .stDeployButton {display: none;}
-        .stApp > header {background-color: transparent;}
-        .stApp > footer {background-color: transparent;}
-        .stApp > .main > .block-container {padding-top: 1rem;}
-    </style>
-    """, unsafe_allow_html=True)
+#     # Hide Streamlit branding on access denied page
+#     st.markdown("""
+#     <style>
+#         #MainMenu {visibility: hidden;}
+#         footer {visibility: hidden;}
+#         header {visibility: hidden;}
+#         .stDeployButton {display: none;}
+#         .stApp > header {background-color: transparent;}
+#         .stApp > footer {background-color: transparent;}
+#         .stApp > .main > .block-container {padding-top: 1rem;}
+#     </style>
+#     """, unsafe_allow_html=True)
     
-    # Show unauthorized access message (clean, no logging visible to user)
-    st.markdown("""
-    <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
-        <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
-        <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
-        <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
-    </div>
-    """, unsafe_allow_html=True)
+#     # Show unauthorized access message (clean, no logging visible to user)
+#     st.markdown("""
+#     <div style="text-align: center; padding: 100px 20px; font-family: Arial, sans-serif;">
+#         <h1 style="color: #d32f2f; font-size: 48px; margin-bottom: 20px;">🚫</h1>
+#         <h2 style="color: #d32f2f; font-size: 32px; margin-bottom: 20px;">Access Denied!</h2>
+#         <p style="color: #666; font-size: 18px; line-height: 1.5;">You don't have access to view this page.</p>
+#     </div>
+#     """, unsafe_allow_html=True)
     
-    # Stop execution
-    st.stop()
+#     # Stop execution
+#     st.stop()
 
 # --- AWS S3 Configuration ---
 # These should be set as environment variables for security
@@ -832,8 +832,57 @@ def load_inventory_data(file):
                     else:
                         df = df_original
                     
-                    # Optimized column name standardization using vectorized operations
-                    df.columns = [str(c).strip().replace(" ", "_").replace(".", "").replace("-", "_") for c in df.columns]
+                    # Fix for Incoming sheet: Handle duplicate MT columns
+                    # The 2nd MT column contains the correct Incoming Stock MT values
+                    if sheet == "Incoming":
+                        try:
+                            # Capture original column names before standardization
+                            original_columns = df.columns.tolist()
+                            
+                            # Find columns with exact name "MT" (before pandas adds suffixes)
+                            # Pandas creates "MT", "MT.1", "MT.2", "MT.3" for duplicate headers
+                            mt_column_indices = []
+                            for idx, col in enumerate(original_columns):
+                                col_str = str(col).strip()
+                                # Check for exact "MT" or pandas-generated "MT.1", "MT.2", etc.
+                                if col_str == "MT" or (col_str.startswith("MT.") and col_str[3:].isdigit()):
+                                    mt_column_indices.append(idx)
+                            
+                            # Validate: must have at least 2 MT columns
+                            if len(mt_column_indices) < 2:
+                                st.error(f"❌ Error: Incoming sheet must have at least 2 MT columns. Found: {len(mt_column_indices)}")
+                                df = pd.DataFrame()  # Return empty DataFrame instead of wrong data
+                            else:
+                                # Select the 2nd MT column (index 1 in mt_column_indices list)
+                                second_mt_idx = mt_column_indices[1]
+                                second_mt_col_original = original_columns[second_mt_idx]
+                                
+                                # After standardization, this will become "MT1" (from "MT.1")
+                                # So we need to track it through standardization
+                                # Standardize the column name to predict what it will become
+                                standardized_second_mt = str(second_mt_col_original).strip().replace(" ", "_").replace(".", "").replace("-", "_")
+                                
+                                # Apply standardization
+                                df.columns = [str(c).strip().replace(" ", "_").replace(".", "").replace("-", "_") for c in df.columns]
+                                
+                                # Now find the standardized second MT column and overwrite df["MT"]
+                                if standardized_second_mt in df.columns:
+                                    df["MT"] = df[standardized_second_mt].copy()
+                                    
+                                    # Drop all other MT columns (keep only "MT")
+                                    # Drop columns that are MT-related: MT1, MT2, MT3, etc. (but keep "MT")
+                                    mt_cols_to_drop = [col for col in df.columns if col.startswith("MT") and col != "MT"]
+                                    if mt_cols_to_drop:
+                                        df = df.drop(columns=mt_cols_to_drop)
+                                else:
+                                    st.error(f"❌ Error: Could not find standardized MT column '{standardized_second_mt}' after processing")
+                                    df = pd.DataFrame()  # Return empty DataFrame instead of wrong data
+                        except Exception as e:
+                            st.error(f"❌ Error processing Incoming sheet MT columns: {str(e)}")
+                            df = pd.DataFrame()  # Return empty DataFrame instead of wrong data
+                    else:
+                        # Optimized column name standardization using vectorized operations
+                        df.columns = [str(c).strip().replace(" ", "_").replace(".", "").replace("-", "_") for c in df.columns]
                     
                     # Standardize additional spec column names to "Add_Spec" for all sheets
                     add_spec_columns = [c for c in df.columns if c.lower() in ["add_spec", "addlspec", "addlspec", "additional_spec", "add_spec", "additional_spec"]]
