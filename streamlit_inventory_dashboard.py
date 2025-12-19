@@ -1446,87 +1446,91 @@ if data_file is not None:
                     df = heatmap_pivot
                     
                     # Create preview table data grouped by unique products (OD, WT, Specification)
-                    if 'Specification' in all_data.columns:
-                        
-                        # Round OD and WT to avoid floating-point precision issues
-                        all_data_rounded = all_data_clean.copy()
-                        all_data_rounded['OD'] = all_data_rounded['OD'].round(3)
-                        all_data_rounded['WT'] = all_data_rounded['WT'].round(3)
-                        
-                        # Group by unique product identifiers and Type, then sum MT values
-                        preview_group_cols = ['OD', 'WT', 'Specification']
-                        
-                        # Create pivot table to get Stock, Incoming, Reservations columns for each unique product
-                        # First, ensure we have unique combinations by grouping and summing
-                        preview_pivot = all_data_rounded.groupby(preview_group_cols + ['Type'])['MT'].sum().reset_index()
-                        
-                        # Create pivot table with explicit aggregation
-                        preview_pivot = preview_pivot.pivot_table(
-                            index=preview_group_cols, 
-                            columns='Type', 
-                            values='MT', 
-                            fill_value=0,
-                            aggfunc='sum'
-                        ).reset_index()
-                        
-                        # Ensure we have only unique products by doing a final groupby
-                        # Use only columns that exist to avoid KeyError
-                        agg_columns = {}
-                        if 'Stock' in preview_pivot.columns:
-                            agg_columns['Stock'] = 'sum'
-                        if 'Incoming' in preview_pivot.columns:
-                            agg_columns['Incoming'] = 'sum'
-                        if 'Reservations' in preview_pivot.columns:
-                            agg_columns['Reservations'] = 'sum'
-                        
-                        if agg_columns:
-                            preview_pivot = preview_pivot.groupby(preview_group_cols).agg(agg_columns).reset_index()
-                        
-                        # Ensure all Type columns exist (even if no data) to prevent KeyError during formatting
-                        required_types = ['Stock', 'Incoming', 'Reservations']
-                        for col in required_types:
-                            if col not in preview_pivot.columns:
-                                preview_pivot[col] = 0
-                        
-                        # Calculate Free For Sale for each unique product (handle missing columns gracefully)
-                        preview_pivot['MT'] = (
-                            preview_pivot.get('Stock', 0) - 
-                            preview_pivot.get('Reservations', 0) + 
-                            preview_pivot.get('Incoming', 0)
-                        )
-                        
-                        # REAL OPTIMIZATION: Vectorized Grade and categorization operations - 3-5x faster
-                        # Convert to numpy arrays for vectorized operations
-                        spec_values = preview_pivot['Specification'].values
-                        od_values = preview_pivot['OD'].values
-                        wt_values = preview_pivot['WT'].values
-                        
-                        # Vectorized grade derivation
-                        grades = []
-                        od_categories = []
-                        wt_schedules = []
-                        
-                        for i in range(len(preview_pivot)):
-                            spec = spec_values[i]
-                            od = od_values[i]
-                            wt = wt_values[i]
+                    try:
+                        if 'Specification' in all_data.columns:
                             
-                            # Derive grade once and reuse
-                            grade_logic = derive_grade_from_spec(spec, combine_cs_as=True)
-                            grade_display = derive_grade_from_spec(spec, combine_cs_as=False)
+                            # Round OD and WT to avoid floating-point precision issues
+                            all_data_rounded = all_data_clean.copy()
+                            all_data_rounded['OD'] = all_data_rounded['OD'].round(3)
+                            all_data_rounded['WT'] = all_data_rounded['WT'].round(3)
                             
-                            grades.append(grade_display)
-                            od_categories.append(categorize_OD(od, grade_logic))
-                            wt_schedules.append(categorize_WT_schedule(od, wt, grade_logic))
-                        
-                        preview_pivot['Grade'] = grades
-                        preview_pivot['OD_Category'] = od_categories
-                        preview_pivot['WT_Schedule'] = wt_schedules
-                        
-                        # Store preview data separately
-                        df_preview = preview_pivot
-                    else:
-                        df_preview = df
+                            # Group by unique product identifiers and Type, then sum MT values
+                            preview_group_cols = ['OD', 'WT', 'Specification']
+                            
+                            # Create pivot table to get Stock, Incoming, Reservations columns for each unique product
+                            # First, ensure we have unique combinations by grouping and summing
+                            preview_pivot = all_data_rounded.groupby(preview_group_cols + ['Type'])['MT'].sum().reset_index()
+                            
+                            # Create pivot table with explicit aggregation
+                            preview_pivot = preview_pivot.pivot_table(
+                                index=preview_group_cols, 
+                                columns='Type', 
+                                values='MT', 
+                                fill_value=0,
+                                aggfunc='sum'
+                            ).reset_index()
+                            
+                            # Ensure we have only unique products by doing a final groupby
+                            # Use only columns that exist to avoid KeyError
+                            agg_columns = {}
+                            if 'Stock' in preview_pivot.columns:
+                                agg_columns['Stock'] = 'sum'
+                            if 'Incoming' in preview_pivot.columns:
+                                agg_columns['Incoming'] = 'sum'
+                            if 'Reservations' in preview_pivot.columns:
+                                agg_columns['Reservations'] = 'sum'
+                            
+                            if agg_columns:
+                                preview_pivot = preview_pivot.groupby(preview_group_cols).agg(agg_columns).reset_index()
+                            
+                            # Ensure all Type columns exist (even if no data) to prevent KeyError during formatting
+                            required_types = ['Stock', 'Incoming', 'Reservations']
+                            for col in required_types:
+                                if col not in preview_pivot.columns:
+                                    preview_pivot[col] = 0
+                            
+                            # Calculate Free For Sale for each unique product (handle missing columns gracefully)
+                            preview_pivot['MT'] = (
+                                preview_pivot.get('Stock', 0) - 
+                                preview_pivot.get('Reservations', 0) + 
+                                preview_pivot.get('Incoming', 0)
+                            )
+                            
+                            # REAL OPTIMIZATION: Vectorized Grade and categorization operations - 3-5x faster
+                            # Convert to numpy arrays for vectorized operations
+                            spec_values = preview_pivot['Specification'].values
+                            od_values = preview_pivot['OD'].values
+                            wt_values = preview_pivot['WT'].values
+                            
+                            # Vectorized grade derivation
+                            grades = []
+                            od_categories = []
+                            wt_schedules = []
+                            
+                            for i in range(len(preview_pivot)):
+                                spec = spec_values[i]
+                                od = od_values[i]
+                                wt = wt_values[i]
+                                
+                                # Derive grade once and reuse
+                                grade_logic = derive_grade_from_spec(spec, combine_cs_as=True)
+                                grade_display = derive_grade_from_spec(spec, combine_cs_as=False)
+                                
+                                grades.append(grade_display)
+                                od_categories.append(categorize_OD(od, grade_logic))
+                                wt_schedules.append(categorize_WT_schedule(od, wt, grade_logic))
+                            
+                            preview_pivot['Grade'] = grades
+                            preview_pivot['OD_Category'] = od_categories
+                            preview_pivot['WT_Schedule'] = wt_schedules
+                            
+                            # Store preview data separately
+                            df_preview = preview_pivot
+                        else:
+                            df_preview = df
+                    except Exception as e:
+                        # If preview pivot creation fails, set df_preview to None to trigger fallback
+                        df_preview = None
                 else:
                     df = pd.DataFrame()
             else:
@@ -2019,109 +2023,113 @@ if data_file is not None:
                 st.error("❌ An error occurred while processing the data. Please check that numeric columns contain valid values.")
                 grouped = df_base.copy()
                 grouped[metric_col] = 0
-            merged = pd.merge(df_base, grouped, on=["OD_Category", "WT_Schedule"], how="left").fillna(0)
-            # Pivot
-            pivot = merged.pivot(index="OD_Category", columns="WT_Schedule", values=metric_col)
-            # Keep only the fixed order
-            pivot = pivot.reindex(index=OD_ORDER, columns=wt_schedule, fill_value=0)
-            # Remove all-zero rows except for totals
-            pivot = pivot.loc[~((pivot == 0).all(axis=1)) | (pivot.index == "Total")]
-            # Add row totals
-            pivot["Total"] = pivot.sum(axis=1)
-            # Add column totals
-            col_total = pivot.sum(axis=0)
-            col_total.name = "Total"
-            pivot = pd.concat([pivot, col_total.to_frame().T])
-            # Format all numeric values to 2 decimals
-            pivot = pivot.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
-            # Conditional formatting
-            def highlight(val, minval, maxval):
-                if pd.isna(val) or val == 0:
-                    return "background-color: #FFFFFF; color: #CCCCCC;"
-                
-                # Handle negative values with red coloring
-                if val < 0:
-                    if size_chart_type == "Compare Files":
-                        red_colors = [
-                            "#FFF0F0", "#FFE0E0", "#FFC1C1", "#FFA3A3", "#FF8585",
-                            "#FF6666", "#D14848", "#8B2E2E", "#601F1F", "#5A2E2E"
-                        ]
-                        negative_vals = numeric_no_totals[numeric_no_totals < 0]
-                        if not negative_vals.empty:
-                            neg_min = negative_vals.min().min()
-                            neg_max = negative_vals.max().max()
-                            if neg_min < neg_max:
-                                idx = int((val - neg_max) / (neg_min - neg_max) * (len(red_colors) - 1))
+            try:
+                merged = pd.merge(df_base, grouped, on=["OD_Category", "WT_Schedule"], how="left").fillna(0)
+                # Pivot
+                pivot = merged.pivot(index="OD_Category", columns="WT_Schedule", values=metric_col)
+                # Keep only the fixed order
+                pivot = pivot.reindex(index=OD_ORDER, columns=wt_schedule, fill_value=0)
+                # Remove all-zero rows except for totals
+                pivot = pivot.loc[~((pivot == 0).all(axis=1)) | (pivot.index == "Total")]
+                # Add row totals
+                pivot["Total"] = pivot.sum(axis=1)
+                # Add column totals
+                col_total = pivot.sum(axis=0)
+                col_total.name = "Total"
+                pivot = pd.concat([pivot, col_total.to_frame().T])
+                # Format all numeric values to 2 decimals
+                pivot = pivot.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+                # Conditional formatting
+                def highlight(val, minval, maxval):
+                    if pd.isna(val) or val == 0:
+                        return "background-color: #FFFFFF; color: #CCCCCC;"
+                    
+                    # Handle negative values with red coloring
+                    if val < 0:
+                        if size_chart_type == "Compare Files":
+                            red_colors = [
+                                "#FFF0F0", "#FFE0E0", "#FFC1C1", "#FFA3A3", "#FF8585",
+                                "#FF6666", "#D14848", "#8B2E2E", "#601F1F", "#5A2E2E"
+                            ]
+                            negative_vals = numeric_no_totals[numeric_no_totals < 0]
+                            if not negative_vals.empty:
+                                neg_min = negative_vals.min().min()
+                                neg_max = negative_vals.max().max()
+                                if neg_min < neg_max:
+                                    idx = int((val - neg_max) / (neg_min - neg_max) * (len(red_colors) - 1))
+                                else:
+                                    idx = len(red_colors) - 1
                             else:
-                                idx = len(red_colors) - 1
+                                idx = 0
+                            idx = max(0, min(idx, len(red_colors) - 1))
+                            text_color = "#FFFFFF" if idx >= 7 else "#222"
+                            return f"background-color: {red_colors[idx]}; color: {text_color}; font-weight: bold;"
                         else:
-                            idx = 0
-                        idx = max(0, min(idx, len(red_colors) - 1))
-                        text_color = "#FFFFFF" if idx >= 7 else "#222"
-                        return f"background-color: {red_colors[idx]}; color: {text_color}; font-weight: bold;"
+                            return "background-color: #DC143C; color: #FFFFFF; font-weight: bold;"
+                    
+                    # Greens scale (10 steps) - Lighter darkest green for better readability
+                    colors = [
+                        "#F0FFF0", "#E0FFE0", "#C1FFC1", "#A3FFA3", "#85FF85", "#66FF66",
+                        "#48D148", "#2E8B2E", "#1F601F", "#2E5A2E"
+                    ]
+                    # Normalize - use only positive values for scaling to ensure consistent light green
+                    positive_vals = numeric_no_totals[numeric_no_totals > 0]
+                    if not positive_vals.empty:
+                        pos_minval = positive_vals.min().min()
+                        pos_maxval = positive_vals.max().max()
+                        if pos_maxval > pos_minval:
+                            # Scale based on positive values only
+                            idx = int((val - pos_minval) / (pos_maxval - pos_minval) * (len(colors) - 1))
+                            idx = max(0, min(idx, len(colors) - 1))  # Ensure idx is within bounds
+                        else:
+                            idx = 0  # Use lightest green for single positive value
                     else:
-                        return "background-color: #DC143C; color: #FFFFFF; font-weight: bold;"
-                
-                # Greens scale (10 steps) - Lighter darkest green for better readability
-                colors = [
-                    "#F0FFF0", "#E0FFE0", "#C1FFC1", "#A3FFA3", "#85FF85", "#66FF66",
-                    "#48D148", "#2E8B2E", "#1F601F", "#2E5A2E"
-                ]
-                # Normalize - use only positive values for scaling to ensure consistent light green
-                positive_vals = numeric_no_totals[numeric_no_totals > 0]
-                if not positive_vals.empty:
-                    pos_minval = positive_vals.min().min()
-                    pos_maxval = positive_vals.max().max()
-                    if pos_maxval > pos_minval:
-                        # Scale based on positive values only
-                        idx = int((val - pos_minval) / (pos_maxval - pos_minval) * (len(colors) - 1))
-                        idx = max(0, min(idx, len(colors) - 1))  # Ensure idx is within bounds
+                        idx = 0  # Use lightest green if no positive values
+                    
+                    # Use white text for darker backgrounds (last 3 colors)
+                    if idx >= 7:
+                        text_color = "#FFFFFF"
                     else:
-                        idx = 0  # Use lightest green for single positive value
-                else:
-                    idx = 0  # Use lightest green if no positive values
+                        text_color = "#222"
+                    
+                    return f"background-color: {colors[idx]}; color: {text_color}; font-weight: bold;"
+                # Only color the numeric cells (not OD_Category)
+                numeric = pivot.select_dtypes(include=[float, int])
+                # Exclude the "Total" row and column for color calculation
+                numeric_no_totals = numeric.drop('Total', axis=1, errors='ignore').drop('Total', axis=0, errors='ignore')
+                minval = numeric_no_totals.min().min() if not numeric_no_totals.empty else 0
+                maxval = numeric_no_totals.max().max() if not numeric_no_totals.empty else 1
+                # Define OD categories to highlight with blue background
+                highlight_od_categories = ['2"', '4"', '6"', '8"', '10"', '12"', '14"', '16"', '18"', '20"']
                 
-                # Use white text for darker backgrounds (last 3 colors)
-                if idx >= 7:
-                    text_color = "#FFFFFF"
-                else:
-                    text_color = "#222"
+                # Create a modified pivot with highlighted OD categories
+                pivot_highlighted = pivot.copy()
                 
-                return f"background-color: {colors[idx]}; color: {text_color}; font-weight: bold;"
-            # Only color the numeric cells (not OD_Category)
-            numeric = pivot.select_dtypes(include=[float, int])
-            # Exclude the "Total" row and column for color calculation
-            numeric_no_totals = numeric.drop('Total', axis=1, errors='ignore').drop('Total', axis=0, errors='ignore')
-            minval = numeric_no_totals.min().min() if not numeric_no_totals.empty else 0
-            maxval = numeric_no_totals.max().max() if not numeric_no_totals.empty else 1
-            # Define OD categories to highlight with blue background
-            highlight_od_categories = ['2"', '4"', '6"', '8"', '10"', '12"', '14"', '16"', '18"', '20"']
-            
-            # Create a modified pivot with highlighted OD categories
-            pivot_highlighted = pivot.copy()
-            
-            # Add a prefix to highlighted OD categories to make them stand out
-            for od_cat in highlight_od_categories:
-                if od_cat in pivot_highlighted.index:
-                                         # Create a new index with highlighted categories
-                     new_index = []
-                     for idx in pivot_highlighted.index:
-                         if idx == od_cat:
-                             new_index.append(f"⭐ {idx}")  # Star emoji prefix
-                         else:
-                             new_index.append(idx)
-                     pivot_highlighted.index = new_index
-            
-            styled = (
-                pivot_highlighted.style
-                .format("{:.2f}")
-                .applymap(lambda v: highlight(v, minval, maxval), subset=pd.IndexSlice[pivot_highlighted.index, pivot_highlighted.columns])
-            )
-            # Calculate height to show exactly up to the Total row (last row) - no extra space
-            num_rows = len(pivot_highlighted)
-            # Height calculation: 35px per row + 50px for header + 10px for minimal bottom padding
-            total_height = (num_rows * 35) + 50
-            st.dataframe(styled, use_container_width=True, height=total_height)
+                # Add a prefix to highlighted OD categories to make them stand out
+                for od_cat in highlight_od_categories:
+                    if od_cat in pivot_highlighted.index:
+                                             # Create a new index with highlighted categories
+                         new_index = []
+                         for idx in pivot_highlighted.index:
+                             if idx == od_cat:
+                                 new_index.append(f"⭐ {idx}")  # Star emoji prefix
+                             else:
+                                 new_index.append(idx)
+                         pivot_highlighted.index = new_index
+                
+                styled = (
+                    pivot_highlighted.style
+                    .format("{:.2f}")
+                    .applymap(lambda v: highlight(v, minval, maxval), subset=pd.IndexSlice[pivot_highlighted.index, pivot_highlighted.columns])
+                )
+                # Calculate height to show exactly up to the Total row (last row) - no extra space
+                num_rows = len(pivot_highlighted)
+                # Height calculation: 35px per row + 50px for header + 10px for minimal bottom padding
+                total_height = (num_rows * 35) + 50
+                st.dataframe(styled, use_container_width=True, height=total_height)
+            except Exception as e:
+                # If pivot table creation or display fails, show user-friendly message
+                st.info("No data available for pivot table.")
         else:
             st.info("No data available for pivot table.")
 
@@ -2152,455 +2160,489 @@ if data_file is not None:
             st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>Preview: {size_chart_type} Data{incoming_filter_display}</h5>", unsafe_allow_html=True)
         
         # Use preview data for Free For Sale, otherwise use filtered data
-        if size_chart_type == "Free For Sale":
-            # For Free For Sale, always use the aggregated preview data
-            if 'df_preview' in locals() and df_preview is not None:
-                # Apply filters to the preview data (same filters as other chart types)
-                df_preview_filtered = apply_filters(df_preview.copy())
-                df_filtered_display = df_preview_filtered
-                st.write(f"Filtered rows: {len(df_filtered_display)}")
-            else:
-                # Fallback to filtered data if preview data is not available
+        try:
+            if size_chart_type == "Free For Sale":
+                # For Free For Sale, always use the aggregated preview data
+                if 'df_preview' in locals() and df_preview is not None:
+                    # Apply filters to the preview data (same filters as other chart types)
+                    df_preview_filtered = apply_filters(df_preview.copy())
+                    df_filtered_display = df_preview_filtered
+                    st.write(f"Filtered rows: {len(df_filtered_display)}")
+                else:
+                    # Fallback to filtered data if preview data is not available
+                    st.write(f"Filtered rows: {len(df_filtered)}")
+                    df_filtered_display = df_filtered.reset_index(drop=True)
+            elif size_chart_type == "Incoming":
+                # For Incoming, show only specific columns in the specified order
                 st.write(f"Filtered rows: {len(df_filtered)}")
                 df_filtered_display = df_filtered.reset_index(drop=True)
-        elif size_chart_type == "Incoming":
-            # For Incoming, show only specific columns in the specified order
-            st.write(f"Filtered rows: {len(df_filtered)}")
-            df_filtered_display = df_filtered.reset_index(drop=True)
-            
-            # Define the columns to show for Incoming data in the specified order
-            incoming_columns = [
-                'SUPPLIER', 'PO_NO', 'DATE', 'OD', 'WT', 'OD_Category', 'WT_Schedule', 
-                'Specification', 'Grade', 'Add_Spec', 'MT', 'Delivery_as_on_Date', 'NO_OF_DAYS_DELAY', 'CUSTOMER'
-            ]
-            
-            # Filter to only show columns that exist in the data
-            available_columns = [col for col in incoming_columns if col in df_filtered_display.columns]
-            
-            # Reorder the dataframe to show only the specified columns in the specified order
-            if available_columns:
-                df_filtered_display = df_filtered_display[available_columns]
-
-                # Format the Delivery_as_on_Date column to be more readable
-                if 'Delivery_as_on_Date' in df_filtered_display.columns:
-                    def format_date(date_value):
-                        """Format date to '30th May, 2025' format"""
-                        if pd.isna(date_value):
-                            return ""
-                        try:
-                            # Convert to datetime if it's not already
-                            if isinstance(date_value, str):
-                                date_obj = pd.to_datetime(date_value)
-                            else:
-                                date_obj = pd.to_datetime(date_value)
-                            
-                            # Format to '30th May, 2025' format
-                            day = date_obj.day
-                            month = date_obj.strftime('%B')  # Full month name
-                            year = date_obj.year
-                            
-                            # Add ordinal suffix to day (1st, 2nd, 3rd, 4th, etc.)
-                            if 10 <= day % 100 <= 20:
-                                suffix = 'th'
-                            else:
-                                suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
-                            
-                            return f"{day}{suffix} {month}, {year}"
-                        except:
-                            return str(date_value)  # Return original if formatting fails
-                    
-                    # Apply the formatting to the Delivery_as_on_Date column
-                    df_filtered_display['Delivery_as_on_Date'] = df_filtered_display['Delivery_as_on_Date'].apply(format_date)
-        elif size_chart_type == "Compare Files":
-            if status_filter and status_filter != "All":
-                df_filtered = df_filtered[df_filtered['Status'] == status_filter]
-            st.write(f"Filtered rows: {len(df_filtered)}")
-            df_filtered_display = df_filtered.reset_index(drop=True)
-        else:
-            st.write(f"Filtered rows: {len(df_filtered)}")
-            df_filtered_display = df_filtered.reset_index(drop=True)
-            
-            # Add Age (In Years) column for Stock chart type
-            if size_chart_type == "Stock" and 'Age' in df_filtered_display.columns:
-                # Add Age (In Years) column - convert days to exact years with 2 decimals
-                # Convert Age to numeric first to handle string values
-                df_filtered_display['Age (In Years)'] = pd.to_numeric(df_filtered_display['Age'], errors='coerce').apply(lambda x: round(x / 365, 2) if pd.notna(x) else x)
                 
-                # Add Product Age column
-                df_filtered_display['Product Age'] = df_filtered_display['Age'].apply(convert_age_to_years)
-                
-                # Reorder columns to put Age (In Years) and Product Age right after Age column
-                cols = df_filtered_display.columns.tolist()
-                age_idx = cols.index('Age')
-                # Remove both columns from current position and insert them after Age
-                cols.remove('Age (In Years)')
-                cols.remove('Product Age')
-                cols.insert(age_idx + 1, 'Age (In Years)')
-                cols.insert(age_idx + 2, 'Product Age')
-                df_filtered_display = df_filtered_display[cols]
-                
-                # Filter and reorder columns for Stock preview table
-                # Define the exact columns to show in the specified order
-                stock_columns = [
-                    'Supplier', 'Specification', 'Grade', 'OD', 'WT', 'OD_Category', 'WT_Schedule',
-                    'Add_Spec', 'Age (In Years)', 'Branch', 'MT', 'Mtrs', 'Kg/Mtr', 
-                    'Make', 'Heat_No', 'Nos', 'HSN_CODE', 'TC_TYPE', 'Product Age'
+                # Define the columns to show for Incoming data in the specified order
+                incoming_columns = [
+                    'SUPPLIER', 'PO_NO', 'DATE', 'OD', 'WT', 'OD_Category', 'WT_Schedule', 
+                    'Specification', 'Grade', 'Add_Spec', 'MT', 'Delivery_as_on_Date', 'NO_OF_DAYS_DELAY', 'CUSTOMER'
                 ]
                 
                 # Filter to only show columns that exist in the data
-                available_stock_columns = [col for col in stock_columns if col in df_filtered_display.columns]
+                available_columns = [col for col in incoming_columns if col in df_filtered_display.columns]
                 
                 # Reorder the dataframe to show only the specified columns in the specified order
-                if available_stock_columns:
-                    df_filtered_display = df_filtered_display[available_stock_columns]
+                if available_columns:
+                    df_filtered_display = df_filtered_display[available_columns]
+
+                    # Format the Delivery_as_on_Date column to be more readable
+                    if 'Delivery_as_on_Date' in df_filtered_display.columns:
+                        def format_date(date_value):
+                            """Format date to '30th May, 2025' format"""
+                            if pd.isna(date_value):
+                                return ""
+                            try:
+                                # Convert to datetime if it's not already
+                                if isinstance(date_value, str):
+                                    date_obj = pd.to_datetime(date_value)
+                                else:
+                                    date_obj = pd.to_datetime(date_value)
+                                
+                                # Format to '30th May, 2025' format
+                                day = date_obj.day
+                                month = date_obj.strftime('%B')  # Full month name
+                                year = date_obj.year
+                                
+                                # Add ordinal suffix to day (1st, 2nd, 3rd, 4th, etc.)
+                                if 10 <= day % 100 <= 20:
+                                    suffix = 'th'
+                                else:
+                                    suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+                                
+                                return f"{day}{suffix} {month}, {year}"
+                            except:
+                                return str(date_value)  # Return original if formatting fails
+                        
+                        # Apply the formatting to the Delivery_as_on_Date column
+                        df_filtered_display['Delivery_as_on_Date'] = df_filtered_display['Delivery_as_on_Date'].apply(format_date)
+            elif size_chart_type == "Compare Files":
+                if status_filter and status_filter != "All":
+                    df_filtered = df_filtered[df_filtered['Status'] == status_filter]
+                st.write(f"Filtered rows: {len(df_filtered)}")
+                df_filtered_display = df_filtered.reset_index(drop=True)
+            else:
+                st.write(f"Filtered rows: {len(df_filtered)}")
+                df_filtered_display = df_filtered.reset_index(drop=True)
                 
-                # Shorten Branch column values for Stock preview table
-                if 'Branch' in df_filtered_display.columns:
-                    def shorten_branch_name(branch_value):
-                        """Convert full city names to short codes"""
-                        if pd.isna(branch_value):
-                            return branch_value
-                        
-                        branch_str = str(branch_value).strip()
-                        
-                        # Mapping of full names to short codes (case-insensitive)
-                        branch_mapping = {
-                            'pune': 'PUN',
-                            'bangalore': 'BLR',
-                            'bommasandra': 'BOM'
-                        }
-                        
-                        # Convert to lowercase for case-insensitive matching
-                        branch_lower = branch_str.lower()
-                        
-                        # Return short code if found, otherwise return original value
-                        return branch_mapping.get(branch_lower, branch_str)
+                # Add Age (In Years) column for Stock chart type
+                if size_chart_type == "Stock" and 'Age' in df_filtered_display.columns:
+                    # Add Age (In Years) column - convert days to exact years with 2 decimals
+                    # Convert Age to numeric first to handle string values
+                    df_filtered_display['Age (In Years)'] = pd.to_numeric(df_filtered_display['Age'], errors='coerce').apply(lambda x: round(x / 365, 2) if pd.notna(x) else x)
                     
-                    # Apply the shortening to Branch column
-                    df_filtered_display['Branch'] = df_filtered_display['Branch'].apply(shorten_branch_name)
-        
-        # Remove Grade_Logic column from display (it's only for internal logic)
-        if 'Grade_Logic' in df_filtered_display.columns:
-            df_filtered_display = df_filtered_display.drop(columns=['Grade_Logic'])
-        
-        # Add sequential row numbers starting from 1
-        df_filtered_display.index = df_filtered_display.index + 1
-        df_filtered_display.index.name = 'Row #'
-        
-        # Reorder columns to show Grade next to Specification and OD/WT categories next to OD/WT
-        if 'Specification' in df_filtered_display.columns:
-            # Get all columns
-            all_cols = df_filtered_display.columns.tolist()
-            # Find Specification position
-            spec_idx = all_cols.index('Specification')
+                    # Add Product Age column
+                    df_filtered_display['Product Age'] = df_filtered_display['Age'].apply(convert_age_to_years)
+                    
+                    # Reorder columns to put Age (In Years) and Product Age right after Age column
+                    cols = df_filtered_display.columns.tolist()
+                    age_idx = cols.index('Age')
+                    # Remove both columns from current position and insert them after Age
+                    cols.remove('Age (In Years)')
+                    cols.remove('Product Age')
+                    cols.insert(age_idx + 1, 'Age (In Years)')
+                    cols.insert(age_idx + 2, 'Product Age')
+                    df_filtered_display = df_filtered_display[cols]
+                    
+                    # Filter and reorder columns for Stock preview table
+                    # Define the exact columns to show in the specified order
+                    stock_columns = [
+                        'Supplier', 'Specification', 'Grade', 'OD', 'WT', 'OD_Category', 'WT_Schedule',
+                        'Add_Spec', 'Age (In Years)', 'Branch', 'MT', 'Mtrs', 'Kg/Mtr', 
+                        'Make', 'Heat_No', 'Nos', 'HSN_CODE', 'TC_TYPE', 'Product Age'
+                    ]
+                    
+                    # Filter to only show columns that exist in the data
+                    available_stock_columns = [col for col in stock_columns if col in df_filtered_display.columns]
+                    
+                    # Reorder the dataframe to show only the specified columns in the specified order
+                    if available_stock_columns:
+                        df_filtered_display = df_filtered_display[available_stock_columns]
+                    
+                    # Shorten Branch column values for Stock preview table
+                    if 'Branch' in df_filtered_display.columns:
+                        def shorten_branch_name(branch_value):
+                            """Convert full city names to short codes"""
+                            if pd.isna(branch_value):
+                                return branch_value
+                            
+                            branch_str = str(branch_value).strip()
+                            
+                            # Mapping of full names to short codes (case-insensitive)
+                            branch_mapping = {
+                                'pune': 'PUN',
+                                'bangalore': 'BLR',
+                                'bommasandra': 'BOM'
+                            }
+                            
+                            # Convert to lowercase for case-insensitive matching
+                            branch_lower = branch_str.lower()
+                            
+                            # Return short code if found, otherwise return original value
+                            return branch_mapping.get(branch_lower, branch_str)
+                        
+                        # Apply the shortening to Branch column
+                        df_filtered_display['Branch'] = df_filtered_display['Branch'].apply(shorten_branch_name)
             
-            # Use Grade column for all chart types (now consistent)
-            grade_col = 'Grade'
-            
-            if grade_col in df_filtered_display.columns:
-                grade_idx = all_cols.index(grade_col)
-                
-                # Create new column order: put Grade right after Specification
-                new_cols = []
-                for i, col in enumerate(all_cols):
-                    if i == spec_idx:
-                        new_cols.append(col)  # Add Specification
-                        if grade_idx != spec_idx + 1:  # If Grade is not already next
-                            new_cols.append(grade_col)  # Add Grade right after
-                    elif col != grade_col:  # Skip Grade as it's already added
-                        new_cols.append(col)
-                
-                # Reorder the dataframe
-                df_filtered_display = df_filtered_display[new_cols]
-                
-        # Reorder OD and WT category columns to be next to OD and WT
-        all_cols = df_filtered_display.columns.tolist()
+            # Remove Grade_Logic column from display (it's only for internal logic)
+            if 'Grade_Logic' in df_filtered_display.columns:
+                df_filtered_display = df_filtered_display.drop(columns=['Grade_Logic'])
+        except Exception as e:
+            # If column operations fail, set empty DataFrame to trigger "No data" message
+            df_filtered_display = pd.DataFrame()
         
-        # Find OD and WT positions
-        od_idx = None
-        wt_idx = None
-        od_cat_idx = None
-        wt_schedule_idx = None
-        
-        for i, col in enumerate(all_cols):
-            if col == 'OD':
-                od_idx = i
-            elif col == 'WT':
-                wt_idx = i
-            elif col == 'OD_Category':
-                od_cat_idx = i
-            elif col == 'WT_Schedule':
-                wt_schedule_idx = i
-        
-        # Reorder to get: OD, WT, OD_Category, WT_Schedule after Grade
-        if od_idx is not None and wt_idx is not None and od_cat_idx is not None and wt_schedule_idx is not None:
-            # Find Grade position
-            grade_idx = None
-            for i, col in enumerate(all_cols):
-                if col == 'Grade':
-                    grade_idx = i
-                    break
-            
-            if grade_idx is not None:
-                # Create new order: put OD, WT, OD_Category, WT_Schedule right after Grade
-                new_cols = []
-                
-                for i, col in enumerate(all_cols):
-                    if i == grade_idx:
-                        new_cols.append(col)  # Add Grade
-                        # Add the four columns right after Grade
-                        new_cols.append('OD')
-                        new_cols.append('WT')
-                        new_cols.append('OD_Category')
-                        new_cols.append('WT_Schedule')
-                    elif col not in ['OD', 'WT', 'OD_Category', 'WT_Schedule']:
-                        # Add all other columns (excluding the four we already added)
-                        new_cols.append(col)
-                
-                # Update the dataframe
-                df_filtered_display = df_filtered_display[new_cols]
-
-        # Note: Free For Sale now includes all columns including Make and Specification
-        
-        # Apply color coding to entire rows based on Product Age for Stock chart type
-        if size_chart_type == "Stock" and 'Product Age' in df_filtered_display.columns:
-            def color_rows_by_age(row):
-                age_val = row['Product Age']
-                if pd.isna(age_val) or age_val == '':
-                    return [''] * len(row)
-                elif age_val == "New" or age_val == "0-1 years":
-                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)  # Light green
-                elif age_val == "1-2 years":
-                    return ['background-color: #F0F8E8; color: #000000;'] * len(row)  # Very light green
-                elif age_val == "2-3 years":
-                    return ['background-color: #FFF8E1; color: #000000;'] * len(row)  # Light yellow
-                elif age_val == "3-4 years":
-                    return ['background-color: #FFF3E0; color: #000000;'] * len(row)  # Light orange
-                elif age_val == "4-5 years":
-                    return ['background-color: #FFEBEE; color: #000000;'] * len(row)  # Light red
-                elif age_val == "5+ years":
-                    return ['background-color: #FCE4EC; color: #000000;'] * len(row)  # Light pink-red
-                else:
-                    return [''] * len(row)
-            
-            # Apply styling to entire rows based on Product Age column
-            # Format OD, WT, and Age (In Years) columns to 2 decimal places and MT column to 3 decimal places
-            df_filtered_display = df_filtered_display.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
-        elif size_chart_type == "Compare Files":
-            # Remove additional columns from preview display (keep them in underlying data for filters)
-            display_exclusions = ['Add_Spec', 'Make', 'Branch']
-            existing_exclusions = [col for col in display_exclusions if col in df_filtered_display.columns]
-            if existing_exclusions:
-                df_filtered_display = df_filtered_display.drop(columns=existing_exclusions)
-        else:
-            # For all other chart types (Reserved, Incoming, Free for Sale), format MT column to 3 decimal places
-            # Also format Stock, Incoming, and Reservations columns to 3 decimal places for Free for Sale
-            if size_chart_type == "Free For Sale":
-                # Check which columns exist before formatting to prevent KeyError
-                available_cols = df_filtered_display.columns
-                od_wt_subset = [col for col in ['OD', 'WT'] if col in available_cols]
-                mt_stock_subset = [col for col in ['MT', 'Stock', 'Incoming', 'Reservations'] if col in available_cols]
-                
-                style_obj = df_filtered_display.style.format(precision=0)
-                if od_wt_subset:
-                    style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
-                if mt_stock_subset:
-                    style_obj = style_obj.format("{:.3f}", subset=mt_stock_subset)
-                df_filtered_display = style_obj
+        # Add sequential row numbers starting from 1 and apply styling
+        try:
+            # Check if df_filtered_display is empty before processing
+            if df_filtered_display.empty:
+                df_display_final = None
             else:
-                df_filtered_display = df_filtered_display.style.format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT'])
+                df_filtered_display.index = df_filtered_display.index + 1
+                df_filtered_display.index.name = 'Row #'
+                
+                # Reorder columns to show Grade next to Specification and OD/WT categories next to OD/WT
+                if 'Specification' in df_filtered_display.columns:
+                    # Get all columns
+                    all_cols = df_filtered_display.columns.tolist()
+                    # Find Specification position
+                    spec_idx = all_cols.index('Specification')
+                    
+                    # Use Grade column for all chart types (now consistent)
+                    grade_col = 'Grade'
+                    
+                    if grade_col in df_filtered_display.columns:
+                        grade_idx = all_cols.index(grade_col)
+                        
+                        # Create new column order: put Grade right after Specification
+                        new_cols = []
+                        for i, col in enumerate(all_cols):
+                            if i == spec_idx:
+                                new_cols.append(col)  # Add Specification
+                                if grade_idx != spec_idx + 1:  # If Grade is not already next
+                                    new_cols.append(grade_col)  # Add Grade right after
+                            elif col != grade_col:  # Skip Grade as it's already added
+                                new_cols.append(col)
+                        
+                        # Reorder the dataframe
+                        df_filtered_display = df_filtered_display[new_cols]
+                
+                # Reorder OD and WT category columns to be next to OD and WT
+                all_cols = df_filtered_display.columns.tolist()
+                
+                # Find OD and WT positions
+                od_idx = None
+                wt_idx = None
+                od_cat_idx = None
+                wt_schedule_idx = None
+                
+                for i, col in enumerate(all_cols):
+                    if col == 'OD':
+                        od_idx = i
+                    elif col == 'WT':
+                        wt_idx = i
+                    elif col == 'OD_Category':
+                        od_cat_idx = i
+                    elif col == 'WT_Schedule':
+                        wt_schedule_idx = i
+                
+                # Reorder to get: OD, WT, OD_Category, WT_Schedule after Grade
+                if od_idx is not None and wt_idx is not None and od_cat_idx is not None and wt_schedule_idx is not None:
+                    # Find Grade position
+                    grade_idx = None
+                    for i, col in enumerate(all_cols):
+                        if col == 'Grade':
+                            grade_idx = i
+                            break
+                    
+                    if grade_idx is not None:
+                        # Create new order: put OD, WT, OD_Category, WT_Schedule right after Grade
+                        new_cols = []
+                        
+                        for i, col in enumerate(all_cols):
+                            if i == grade_idx:
+                                new_cols.append(col)  # Add Grade
+                                # Add the four columns right after Grade
+                                new_cols.append('OD')
+                                new_cols.append('WT')
+                                new_cols.append('OD_Category')
+                                new_cols.append('WT_Schedule')
+                            elif col not in ['OD', 'WT', 'OD_Category', 'WT_Schedule']:
+                                # Add all other columns (excluding the four we already added)
+                                new_cols.append(col)
+                        
+                        # Update the dataframe
+                        df_filtered_display = df_filtered_display[new_cols]
+
+                # Note: Free For Sale now includes all columns including Make and Specification
+                
+                # Apply color coding to entire rows based on Product Age for Stock chart type
+                if size_chart_type == "Stock" and 'Product Age' in df_filtered_display.columns:
+                    def color_rows_by_age(row):
+                        age_val = row['Product Age']
+                        if pd.isna(age_val) or age_val == '':
+                            return [''] * len(row)
+                        elif age_val == "New" or age_val == "0-1 years":
+                            return ['background-color: #E8F5E8; color: #000000;'] * len(row)  # Light green
+                        elif age_val == "1-2 years":
+                            return ['background-color: #F0F8E8; color: #000000;'] * len(row)  # Very light green
+                        elif age_val == "2-3 years":
+                            return ['background-color: #FFF8E1; color: #000000;'] * len(row)  # Light yellow
+                        elif age_val == "3-4 years":
+                            return ['background-color: #FFF3E0; color: #000000;'] * len(row)  # Light orange
+                        elif age_val == "4-5 years":
+                            return ['background-color: #FFEBEE; color: #000000;'] * len(row)  # Light red
+                        elif age_val == "5+ years":
+                            return ['background-color: #FCE4EC; color: #000000;'] * len(row)  # Light pink-red
+                        else:
+                            return [''] * len(row)
+                    
+                    # Apply styling to entire rows based on Product Age column
+                    # Format OD, WT, and Age (In Years) columns to 2 decimal places and MT column to 3 decimal places
+                    df_filtered_display = df_filtered_display.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD', 'WT', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
+                elif size_chart_type == "Compare Files":
+                    # Remove additional columns from preview display (keep them in underlying data for filters)
+                    display_exclusions = ['Add_Spec', 'Make', 'Branch']
+                    existing_exclusions = [col for col in display_exclusions if col in df_filtered_display.columns]
+                    if existing_exclusions:
+                        df_filtered_display = df_filtered_display.drop(columns=existing_exclusions)
+                else:
+                    # For all other chart types (Reserved, Incoming, Free for Sale), format MT column to 3 decimal places
+                    # Also format Stock, Incoming, and Reservations columns to 3 decimal places for Free for Sale
+                    if size_chart_type == "Free For Sale":
+                        # Check which columns exist before formatting to prevent KeyError
+                        available_cols = df_filtered_display.columns
+                        od_wt_subset = [col for col in ['OD', 'WT'] if col in available_cols]
+                        mt_stock_subset = [col for col in ['MT', 'Stock', 'Incoming', 'Reservations'] if col in available_cols]
+                        
+                        style_obj = df_filtered_display.style.format(precision=0)
+                        if od_wt_subset:
+                            style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
+                        if mt_stock_subset:
+                            style_obj = style_obj.format("{:.3f}", subset=mt_stock_subset)
+                        df_filtered_display = style_obj
+                    else:
+                        df_filtered_display = df_filtered_display.style.format(precision=0).format("{:.2f}", subset=['OD', 'WT']).format("{:.3f}", subset=['MT'])
+                
+                # Rename columns for better display while preserving styling
+                if hasattr(df_filtered_display, 'data'):
+                    # It's a Styler object, get the underlying DataFrame
+                    df_underlying = df_filtered_display.data.copy()
+                else:
+                    # It's a regular DataFrame
+                    df_underlying = df_filtered_display.copy()
+                
+                # Rename columns for display
+                column_mapping = {
+                    'OD_Category': 'OD (Inches)',
+                    'OD': 'OD (mm)',
+                    'WT': 'WT (mm)'
+                }
+                df_underlying.columns = [column_mapping.get(col, col) for col in df_underlying.columns]
+                
+                # Reapply styling to the renamed DataFrame
+                if size_chart_type == "Stock" and 'Product Age' in df_underlying.columns:
+                    # Apply color coding for Stock chart type
+                    df_display_final = df_underlying.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
+                elif size_chart_type == "Compare Files":
+                    # Apply color coding and numeric formatting for comparison data
+                    def color_rows_by_status(row):
+                        # Safely access Status column - handle missing column gracefully
+                        # pandas Series passed with axis=1, so use try-except for KeyError
+                        try:
+                            # Try direct access first (most common case)
+                            status = row['Status']
+                        except (KeyError, AttributeError, IndexError):
+                            # If Status column doesn't exist, default to Unknown
+                            try:
+                                # Try using .get() if available (some pandas versions)
+                                status = row.get('Status', 'Unknown')
+                            except (AttributeError, KeyError):
+                                status = 'Unknown'
+                        
+                        if status == 'Added':
+                            return ['background-color: #E8F5E8; color: #000000;'] * len(row)
+                        elif status == 'Removed':
+                            return ['background-color: #FCE4EC; color: #000000;'] * len(row)
+                        elif status == 'Increased':
+                            return ['background-color: #E8F5E8; color: #000000;'] * len(row)
+                        elif status == 'Decreased':
+                            return ['background-color: #FCE4EC; color: #000000;'] * len(row)
+                        else:  # Unchanged or Unknown
+                            return ['background-color: #FFF8E1; color: #000000;'] * len(row)
+
+                    def positive_with_sign(value):
+                        try:
+                            numeric_value = float(value)
+                        except (TypeError, ValueError):
+                            return value
+                        if numeric_value > 0:
+                            return f"+{numeric_value:.3f}"
+                        elif numeric_value == 0:
+                            return "0.000"
+                        else:
+                            return f"{numeric_value:.3f}"
+
+                    # Validate required columns exist before styling
+                    if 'Status' not in df_underlying.columns:
+                        # If Status column missing, show error message instead of crashing
+                        st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                        df_display_final = df_underlying.style  # Return unstyled dataframe
+                    else:
+                        od_wt_subset = [col for col in ['OD (mm)', 'WT (mm)'] if col in df_underlying.columns]
+                        file_mt_subset = [col for col in df_underlying.columns if col.startswith('MT (')]
+                        change_subset = [col for col in ['Change in Stock'] if col in df_underlying.columns]
+
+                        try:
+                            style_obj = df_underlying.style.apply(color_rows_by_status, axis=1)
+                            if od_wt_subset:
+                                style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
+                            if file_mt_subset:
+                                style_obj = style_obj.format("{:.3f}", subset=file_mt_subset)
+                            if change_subset:
+                                style_obj = style_obj.format(positive_with_sign, subset=change_subset)
+                            df_display_final = style_obj
+                        except (KeyError, ValueError, AttributeError) as e:
+                            # Handle styling errors gracefully
+                            st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                            df_display_final = df_underlying.style  # Return unstyled dataframe
+                else:
+                    # For all other chart types, apply formatting
+                    if size_chart_type == "Free For Sale":
+                        # Check which columns exist before formatting to prevent KeyError
+                        available_cols = df_underlying.columns
+                        od_wt_subset = [col for col in ['OD (mm)', 'WT (mm)'] if col in available_cols]
+                        mt_stock_subset = [col for col in ['MT', 'Stock', 'Incoming', 'Reservations'] if col in available_cols]
+                        
+                        style_obj = df_underlying.style.format(precision=0)
+                        if od_wt_subset:
+                            style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
+                        if mt_stock_subset:
+                            style_obj = style_obj.format("{:.3f}", subset=mt_stock_subset)
+                        df_display_final = style_obj
+                    else:
+                        df_display_final = df_underlying.style.format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)']).format("{:.3f}", subset=['MT'])
+        except Exception as e:
+            # If styling operations fail, set to None to trigger "No data" message
+            df_display_final = None
         
-        # Rename columns for better display while preserving styling
-        if hasattr(df_filtered_display, 'data'):
-            # It's a Styler object, get the underlying DataFrame
-            df_underlying = df_filtered_display.data.copy()
+        # Final check before display - similar to pivot table
+        if df_display_final is None:
+            st.info("No data available for preview table.")
+        elif hasattr(df_display_final, 'data') and df_display_final.data.empty:
+            st.info("No data available for preview table.")
+        elif not hasattr(df_display_final, 'data') and isinstance(df_filtered_display, pd.DataFrame) and df_filtered_display.empty:
+            st.info("No data available for preview table.")
         else:
-            # It's a regular DataFrame
-            df_underlying = df_filtered_display.copy()
-        
-        # Rename columns for display
-        column_mapping = {
-            'OD_Category': 'OD (Inches)',
-            'OD': 'OD (mm)',
-            'WT': 'WT (mm)'
-        }
-        df_underlying.columns = [column_mapping.get(col, col) for col in df_underlying.columns]
-        
-        # Reapply styling to the renamed DataFrame
-        if size_chart_type == "Stock" and 'Product Age' in df_underlying.columns:
-            # Apply color coding for Stock chart type
-            df_display_final = df_underlying.style.apply(color_rows_by_age, axis=1).format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)', 'Age (In Years)']).format("{:.3f}", subset=['MT'])
-        elif size_chart_type == "Compare Files":
-            # Apply color coding and numeric formatting for comparison data
-            def color_rows_by_status(row):
-                # Safely access Status column - handle missing column gracefully
-                # pandas Series passed with axis=1, so use try-except for KeyError
+            with st.spinner("Generating Table..."):
                 try:
-                    # Try direct access first (most common case)
-                    status = row['Status']
-                except (KeyError, AttributeError, IndexError):
-                    # If Status column doesn't exist, default to Unknown
+                    st.dataframe(df_display_final)
+                except (KeyError, ValueError, AttributeError, IndexError) as e:
+                    # Handle errors during dataframe rendering (e.g., missing columns in styling)
+                    if size_chart_type == "Compare Files":
+                        st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
+                    else:
+                        st.error("❌ An error occurred while displaying the data. Please try refreshing the page.")
+                    # Try to display unstyled dataframe as fallback
                     try:
-                        # Try using .get() if available (some pandas versions)
-                        status = row.get('Status', 'Unknown')
-                    except (AttributeError, KeyError):
-                        status = 'Unknown'
-                
-                if status == 'Added':
-                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)
-                elif status == 'Removed':
-                    return ['background-color: #FCE4EC; color: #000000;'] * len(row)
-                elif status == 'Increased':
-                    return ['background-color: #E8F5E8; color: #000000;'] * len(row)
-                elif status == 'Decreased':
-                    return ['background-color: #FCE4EC; color: #000000;'] * len(row)
-                else:  # Unchanged or Unknown
-                    return ['background-color: #FFF8E1; color: #000000;'] * len(row)
-
-            def positive_with_sign(value):
-                try:
-                    numeric_value = float(value)
-                except (TypeError, ValueError):
-                    return value
-                if numeric_value > 0:
-                    return f"+{numeric_value:.3f}"
-                elif numeric_value == 0:
-                    return "0.000"
-                else:
-                    return f"{numeric_value:.3f}"
-
-            # Validate required columns exist before styling
-            if 'Status' not in df_underlying.columns:
-                # If Status column missing, show error message instead of crashing
-                st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
-                df_display_final = df_underlying.style  # Return unstyled dataframe
-            else:
-                od_wt_subset = [col for col in ['OD (mm)', 'WT (mm)'] if col in df_underlying.columns]
-                file_mt_subset = [col for col in df_underlying.columns if col.startswith('MT (')]
-                change_subset = [col for col in ['Change in Stock'] if col in df_underlying.columns]
-
-                try:
-                    style_obj = df_underlying.style.apply(color_rows_by_status, axis=1)
-                    if od_wt_subset:
-                        style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
-                    if file_mt_subset:
-                        style_obj = style_obj.format("{:.3f}", subset=file_mt_subset)
-                    if change_subset:
-                        style_obj = style_obj.format(positive_with_sign, subset=change_subset)
-                    df_display_final = style_obj
-                except (KeyError, ValueError, AttributeError) as e:
-                    # Handle styling errors gracefully
-                    st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
-                    df_display_final = df_underlying.style  # Return unstyled dataframe
-        else:
-            # For all other chart types, apply formatting
-            if size_chart_type == "Free For Sale":
-                # Check which columns exist before formatting to prevent KeyError
-                available_cols = df_underlying.columns
-                od_wt_subset = [col for col in ['OD (mm)', 'WT (mm)'] if col in available_cols]
-                mt_stock_subset = [col for col in ['MT', 'Stock', 'Incoming', 'Reservations'] if col in available_cols]
-                
-                style_obj = df_underlying.style.format(precision=0)
-                if od_wt_subset:
-                    style_obj = style_obj.format("{:.2f}", subset=od_wt_subset)
-                if mt_stock_subset:
-                    style_obj = style_obj.format("{:.3f}", subset=mt_stock_subset)
-                df_display_final = style_obj
-            else:
-                df_display_final = df_underlying.style.format(precision=0).format("{:.2f}", subset=['OD (mm)', 'WT (mm)']).format("{:.3f}", subset=['MT'])
-        
-        with st.spinner("Generating Table..."):
-            try:
-                st.dataframe(df_display_final)
-            except (KeyError, ValueError, AttributeError, IndexError) as e:
-                # Handle errors during dataframe rendering (e.g., missing columns in styling)
-                if size_chart_type == "Compare Files":
-                    st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
-                else:
-                    st.error("❌ An error occurred while displaying the data. Please try refreshing the page.")
-                # Try to display unstyled dataframe as fallback
-                try:
-                    if hasattr(df_display_final, 'data'):
-                        st.dataframe(df_display_final.data)
-                    else:
-                        st.dataframe(df_display_final)
-                except:
+                        if hasattr(df_display_final, 'data'):
+                            st.dataframe(df_display_final.data)
+                        else:
+                            st.dataframe(df_display_final)
+                    except:
+                        if size_chart_type == "Compare Files":
+                            st.error("❌ Unable to display comparison data. Please check the file structure.")
+                        else:
+                            st.error("❌ Unable to display data. Please try refreshing the page.")
+                except Exception as e:
+                    # Handle any other unexpected errors during rendering
                     if size_chart_type == "Compare Files":
-                        st.error("❌ Unable to display comparison data. Please check the file structure.")
+                        st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
                     else:
-                        st.error("❌ Unable to display data. Please try refreshing the page.")
-            except Exception as e:
-                # Handle any other unexpected errors during rendering
-                if size_chart_type == "Compare Files":
-                    st.error("❌ The uploaded file does not match the required structure for comparison. Please select another file.")
-                else:
-                    st.error("❌ An error occurred while displaying the data. Please try refreshing the page.")
-                # Try to display unstyled dataframe as fallback
-                try:
-                    if hasattr(df_display_final, 'data'):
-                        st.dataframe(df_display_final.data)
-                    else:
-                        st.dataframe(df_display_final)
-                except:
-                    if size_chart_type == "Compare Files":
-                        st.error("❌ Unable to display comparison data. Please check the file structure.")
-                    else:
-                        st.error("❌ Unable to display data. Please try refreshing the page.")
+                        st.error("❌ An error occurred while displaying the data. Please try refreshing the page.")
+                    # Try to display unstyled dataframe as fallback
+                    try:
+                        if hasattr(df_display_final, 'data'):
+                            st.dataframe(df_display_final.data)
+                        else:
+                            st.dataframe(df_display_final)
+                    except:
+                        if size_chart_type == "Compare Files":
+                            st.error("❌ Unable to display comparison data. Please check the file structure.")
+                        else:
+                            st.error("❌ Unable to display data. Please try refreshing the page.")
         
         # Add Product Age bar chart for Stock chart type only
-        if size_chart_type == "Stock" and 'Product Age' in df_filtered_display.data.columns:
-            # Add horizontal line and styled heading matching other sections
-            st.markdown("<hr style='margin: 20px 0 10px 0; border: 1px solid #ddd;'>", unsafe_allow_html=True)
-            st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>Product Age Distribution</h5>", unsafe_allow_html=True)
-            # Create aggregated data for Product Age using the underlying DataFrame
-            age_counts = df_filtered_display.data['Product Age'].value_counts()
-            
-            # Define the order for age categories
-            age_order = ["0-1 years", "1-2 years", "2-3 years", "3-4 years", "4-5 years", "5+ years", "Null"]
-            
-            # Reorder the data according to the defined order
-            age_counts_ordered = age_counts.reindex(age_order, fill_value=0)
-            
-            # Create bar chart with colors matching the table
-            import plotly.express as px
-            
-            # Define colors matching the table color scheme (slightly darker for better visibility)
-            age_colors = {
-                "0-1 years": "#A5D6A7",      # Darker light green
-                "1-2 years": "#C5E1A5",      # Darker very light green  
-                "2-3 years": "#FFF176",      # Darker light yellow
-                "3-4 years": "#FFB74D",      # Darker light orange
-                "4-5 years": "#EF9A9A",      # Darker light red
-                "5+ years": "#F06292",       # Darker light pink-red
-                "Null": "#BDBDBD"            # Darker light gray for null values
-            }
-            
-            # Create color list for the bars
-            bar_colors = [age_colors.get(age, "#F5F5F5") for age in age_counts_ordered.index]
-            
-            fig = px.bar(
-                x=age_counts_ordered.index,
-                y=age_counts_ordered.values,
-                labels={'x': 'Product Age', 'y': 'Number of Products'},
-                color=age_counts_ordered.index,
-                color_discrete_map=age_colors
-            )
-            
-            # Update layout
-            fig.update_layout(
-                showlegend=False,
-                height=400,
-                xaxis_title="Product Age",
-                yaxis_title="Number of Products"
-            )
-            
-            # Customize hover template to remove color information
-            fig.update_traces(
-                hovertemplate="<b>Product Age:</b> %{x}<br><b>Number of Products:</b> %{y}<extra></extra>"
-            )
-            
-            # Display the chart
-            st.plotly_chart(fig, use_container_width=True)
+        if size_chart_type == "Stock":
+            try:
+                # Check if df_filtered_display is a Styler object (has .data) or a DataFrame
+                if hasattr(df_filtered_display, 'data'):
+                    # It's a Styler object
+                    df_for_chart = df_filtered_display.data
+                else:
+                    # It's a DataFrame
+                    df_for_chart = df_filtered_display
+                
+                # Check if Product Age column exists and data is not empty
+                if not df_for_chart.empty and 'Product Age' in df_for_chart.columns:
+                    # Add horizontal line and styled heading matching other sections
+                    st.markdown("<hr style='margin: 20px 0 10px 0; border: 1px solid #ddd;'>", unsafe_allow_html=True)
+                    st.markdown(f"<h5 style='margin-bottom: 5px; color: #1a6b3e;'>Product Age Distribution</h5>", unsafe_allow_html=True)
+                    # Create aggregated data for Product Age using the underlying DataFrame
+                    age_counts = df_for_chart['Product Age'].value_counts()
+                    
+                    # Define the order for age categories
+                    age_order = ["0-1 years", "1-2 years", "2-3 years", "3-4 years", "4-5 years", "5+ years", "Null"]
+                    
+                    # Reorder the data according to the defined order
+                    age_counts_ordered = age_counts.reindex(age_order, fill_value=0)
+                    
+                    # Create bar chart with colors matching the table
+                    import plotly.express as px
+                    
+                    # Define colors matching the table color scheme (slightly darker for better visibility)
+                    age_colors = {
+                        "0-1 years": "#A5D6A7",      # Darker light green
+                        "1-2 years": "#C5E1A5",      # Darker very light green  
+                        "2-3 years": "#FFF176",      # Darker light yellow
+                        "3-4 years": "#FFB74D",      # Darker light orange
+                        "4-5 years": "#EF9A9A",      # Darker light red
+                        "5+ years": "#F06292",       # Darker light pink-red
+                        "Null": "#BDBDBD"            # Darker light gray for null values
+                    }
+                    
+                    # Create color list for the bars
+                    bar_colors = [age_colors.get(age, "#F5F5F5") for age in age_counts_ordered.index]
+                    
+                    fig = px.bar(
+                        x=age_counts_ordered.index,
+                        y=age_counts_ordered.values,
+                        labels={'x': 'Product Age', 'y': 'Number of Products'},
+                        color=age_counts_ordered.index,
+                        color_discrete_map=age_colors
+                    )
+                    
+                    # Update layout
+                    fig.update_layout(
+                        showlegend=False,
+                        height=400,
+                        xaxis_title="Product Age",
+                        yaxis_title="Number of Products"
+                    )
+                    
+                    # Customize hover template to remove color information
+                    fig.update_traces(
+                        hovertemplate="<b>Product Age:</b> %{x}<br><b>Number of Products:</b> %{y}<extra></extra>"
+                    )
+                    
+                    # Display the chart
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                # Silently skip the bar chart if there's an error (no data or processing issue)
+                pass
         
         st.markdown("<hr style='margin: 20px 0 0 0; border: 1px solid #ddd;'>", unsafe_allow_html=True)
         
