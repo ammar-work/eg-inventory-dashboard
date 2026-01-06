@@ -1,0 +1,72 @@
+name: Weekly Inventory Report
+
+on:
+  schedule:
+    # Run every Tuesday at 11:00 AM IST (5:30 AM UTC)
+    # IST = UTC + 5:30, so Tuesday 11:00 AM IST = Tuesday 5:30 AM UTC
+    # Cron format: minute hour day-of-month month day-of-week
+    # Note: GitHub Actions uses UTC timezone
+    - cron: '30 5 * * 2'  # Tuesday 5:30 AM UTC = Tuesday 11:00 AM IST
+  
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run inventory reporting pipeline
+        env:
+          # AWS S3 Configuration
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          INVENTORY_S3_BUCKET: ${{ secrets.INVENTORY_S3_BUCKET }}
+          INVENTORY_S3_PREFIX: ${{ secrets.INVENTORY_S3_PREFIX }}
+          INVENTORY_FILE_EXTENSION: ${{ secrets.INVENTORY_FILE_EXTENSION }}
+          
+          # SMTP Configuration
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          
+          # Email Configuration
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+          ERP_SYSTEM_LINK: ${{ secrets.ERP_SYSTEM_LINK }}
+        run: |
+          python scripts/run_inventory_report.py
+      
+      - name: Upload generated PDF report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventory-report-pdf
+          path: reports/*.pdf
+          retention-days: 30
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs
+          path: |
+            logs/*.log
+            reports/**/*.log
+          retention-days: 7
+
