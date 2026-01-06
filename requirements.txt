@@ -8,3 +8,4 @@ python-dotenv
 dataframe-image>=0.2.0
 reportlab>=4.0.0
 Pillow>=10.0.0
+matplotlib>=3.7
