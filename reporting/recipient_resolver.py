@@ -123,8 +123,8 @@ def _build_where_clause(filters: dict) -> Tuple[str, List]:
         Tuple of (WHERE clause string, parameter list)
         
     Example:
-        filters = {'status': '1', 'department': 'Sales,Marketing'}
-        Returns: ("WHERE status = %s AND department IN (%s, %s)", ['1', 'Sales', 'Marketing'])
+        filters = {'status': '1', 'department_id': '2,5,7'}
+        Returns: ("WHERE status = %s AND department_id IN (%s, %s, %s)", ['1', '2', '5', '7'])
     """
     conditions = []
     params = []
@@ -173,8 +173,8 @@ def fetch_recipients_from_db() -> Tuple[bool, List[str], Optional[str]]:
         
     Environment Variables for Filtering (all optional except status):
         ERP_RECIPIENT_FILTER_STATUS: Status filter (default: 1)
-        ERP_RECIPIENT_FILTER_DEPARTMENT: Department filter (comma-separated)
-        ERP_RECIPIENT_FILTER_DESIGNATION: Designation filter (comma-separated)
+        ERP_RECIPIENT_FILTER_DEPARTMENT: Department ID filter (comma-separated integer IDs, e.g., "2,5,7")
+        ERP_RECIPIENT_FILTER_DESIGNATION: Designation ID filter (comma-separated integer IDs, e.g., "1,3")
         
     Database Configuration:
         ERP_DB_HOST: Database hostname
@@ -213,15 +213,15 @@ def fetch_recipients_from_db() -> Tuple[bool, List[str], Optional[str]]:
         if status_filter and status_filter.strip():
             filters['status'] = status_filter.strip()
         
-        # Department filter (optional)
+        # Department filter (optional) - expects comma-separated integer IDs
         dept_filter = os.getenv('ERP_RECIPIENT_FILTER_DEPARTMENT', '')
         if dept_filter and dept_filter.strip():
-            filters['department'] = dept_filter.strip()
+            filters['department_id'] = dept_filter.strip()
         
-        # Designation filter (optional)
+        # Designation filter (optional) - expects comma-separated integer IDs
         desig_filter = os.getenv('ERP_RECIPIENT_FILTER_DESIGNATION', '')
         if desig_filter and desig_filter.strip():
-            filters['designation'] = desig_filter.strip()
+            filters['designation_id'] = desig_filter.strip()
         
         # Log applied filters (without values for safety)
         applied_filters = list(filters.keys())
