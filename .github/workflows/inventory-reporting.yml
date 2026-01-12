@@ -49,6 +49,17 @@ jobs:
           # Email Configuration
           EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
           ERP_SYSTEM_LINK: ${{ secrets.ERP_SYSTEM_LINK }}
+          DRY_RUN_EMAIL: ${{ secrets.DRY_RUN_EMAIL }}
+          
+          # ERP Database Configuration (optional - for dynamic recipient fetching)
+          ERP_DB_HOST: ${{ secrets.ERP_DB_HOST }}
+          ERP_DB_PORT: ${{ secrets.ERP_DB_PORT }}
+          ERP_DB_NAME: ${{ secrets.ERP_DB_NAME }}
+          ERP_DB_USER: ${{ secrets.ERP_DB_USER }}
+          ERP_DB_PASSWORD: ${{ secrets.ERP_DB_PASSWORD }}
+          ERP_RECIPIENT_FILTER_STATUS: ${{ secrets.ERP_RECIPIENT_FILTER_STATUS }}
+          ERP_RECIPIENT_FILTER_DEPARTMENT: ${{ secrets.ERP_RECIPIENT_FILTER_DEPARTMENT }}
+          ERP_RECIPIENT_FILTER_DESIGNATION: ${{ secrets.ERP_RECIPIENT_FILTER_DESIGNATION }}
         run: |
           python scripts/run_inventory_report.py
       

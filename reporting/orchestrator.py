@@ -14,7 +14,7 @@ All business logic lives in the individual modules.
 
 import os
 from datetime import datetime
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 import pandas as pd
 
 from reporting.config import (
@@ -33,6 +33,7 @@ from reporting.pdf_generator import generate_inventory_pdf
 from reporting.email_sender import send_email
 from reporting.email_body_generator import generate_inventory_email_body, generate_email_subject
 from reporting.s3_file_fetcher import fetch_latest_inventory_file
+from reporting.recipient_resolver import fetch_recipients_from_db
 from reporting.logger import get_logger
 
 logger = get_logger(__name__)
@@ -51,6 +52,66 @@ def format_date(date_value: datetime) -> str:
     if isinstance(date_value, datetime):
         return date_value.strftime(DATE_FORMAT_DISPLAY)
     return str(date_value)
+
+
+def _parse_dry_run_email_env() -> bool:
+    """
+    Parse DRY_RUN_EMAIL environment variable.
+    
+    Returns:
+        True if dry run mode should be enabled, False otherwise
+        
+    Accepted values (case-insensitive):
+        - "true", "1", "yes" → True
+        - "false", "0", "no" → False
+        - Not set or empty → True (default, backward compatible)
+    """
+    dry_run_env = os.getenv('DRY_RUN_EMAIL', '').strip().lower()
+    
+    if not dry_run_env:
+        # Not set - default to True (backward compatible)
+        return True
+    
+    # Case-insensitive check
+    if dry_run_env in ('true', '1', 'yes'):
+        return True
+    elif dry_run_env in ('false', '0', 'no'):
+        return False
+    else:
+        # Invalid value - default to True (safe default)
+        logger.warning(f"Invalid DRY_RUN_EMAIL value: '{os.getenv('DRY_RUN_EMAIL')}'. Using default: True")
+        return True
+
+
+def _resolve_recipients() -> Tuple[List[str], Optional[str]]:
+    """
+    Resolve email recipients from ERP database with fallback to environment variable.
+    
+    This function:
+    1. Attempts to fetch recipients from ERP MySQL database
+    2. Falls back to EMAIL_RECIPIENTS env variable if DB fetch fails or returns empty
+    3. Returns empty list if both sources are unavailable
+    
+    Returns:
+        Tuple of (recipients: List[str], error_message: Optional[str])
+        - recipients: List of email addresses (empty if both sources fail)
+        - error_message: Error message if DB fetch failed, None if successful or using fallback
+    """
+    # Try to fetch from ERP database first
+    db_success, db_recipients, db_error = fetch_recipients_from_db()
+    
+    if db_success and db_recipients:
+        # Database fetch succeeded - use DB recipients
+        return db_recipients, None
+    
+    # Database fetch failed or returned empty - fallback to env variable
+    if db_error:
+        logger.debug(f"Database fetch failed, using fallback: {db_error}")
+    else:
+        logger.debug("Database fetch returned no recipients, using fallback")
+    
+    # Fallback to EMAIL_RECIPIENTS from config
+    return EMAIL_RECIPIENTS, db_error
 
 
 def run_inventory_reporting_pipeline(
@@ -86,14 +147,30 @@ def run_inventory_reporting_pipeline(
         )
     """
     try:
+        # Check environment variable for dry_run_email override
+        dry_run_env = _parse_dry_run_email_env()
+        # Environment variable takes precedence over function parameter
+        if os.getenv('DRY_RUN_EMAIL') is not None:
+            dry_run_email = dry_run_env
+        
         # Log pipeline start with configuration
         logger.info("=" * 70)
         logger.info("Starting Inventory Reporting Pipeline")
         logger.info("=" * 70)
         logger.info(f"Report date: {format_date(report_date) if report_date else 'Not provided (will use current date)'}")
-        logger.info(f"Dry run email: {dry_run_email}")
+        logger.info(f"Dry run email mode: {'ENABLED' if dry_run_email else 'DISABLED'}")
         logger.info(f"Log file: {os.path.join(LOGS_DIR, LOG_FILENAME)}")
         logger.info("=" * 70)
+        logger.info("")
+        
+        # Resolve email recipients (ERP DB with fallback to env var)
+        logger.info("Resolving email recipients...")
+        final_recipients, db_error = _resolve_recipients()
+        
+        if final_recipients:
+            logger.info(f"Resolved {len(final_recipients)} recipient(s) for email sending")
+        else:
+            logger.warning("No email recipients configured. Pipeline will complete but no email will be sent.")
         logger.info("")
         
         # Step 0: Resolve Excel file path (local override or S3 fetch)
@@ -389,7 +466,7 @@ def run_inventory_reporting_pipeline(
         
         if dry_run_email:
             logger.info("DRY RUN MODE: Email sending skipped (dry_run_email=True)")
-            logger.info(f"Would send email to {len(EMAIL_RECIPIENTS)} recipients")
+            logger.info(f"Would send email to {len(final_recipients)} recipients")
             email_subject = generate_email_subject(report_date)
             logger.info(f"Subject: {email_subject}")
             logger.info(f"Attachment: {pdf_path}")
@@ -409,7 +486,7 @@ def run_inventory_reporting_pipeline(
             except Exception as e:
                 logger.debug(f"Could not generate email body preview: {str(e)}")
         else:
-            logger.info(f"Sending email to {len(EMAIL_RECIPIENTS)} recipients")
+            logger.info(f"Sending email to {len(final_recipients)} recipients")
             
             # Generate email subject using new format
             email_subject = generate_email_subject(report_date)
@@ -446,7 +523,7 @@ def run_inventory_reporting_pipeline(
                 logger.warning("Using fallback HTML email body")
             
             # Email validation: Check recipient list and attachment
-            if not EMAIL_RECIPIENTS or len(EMAIL_RECIPIENTS) == 0:
+            if not final_recipients or len(final_recipients) == 0:
                 logger.warning("Email recipient list is empty. Skipping email send.")
                 logger.warning("Pipeline completed successfully but no email was sent.")
                 return True, pdf_path
@@ -458,7 +535,7 @@ def run_inventory_reporting_pipeline(
             
             try:
                 success, error = send_email(
-                    to_emails=EMAIL_RECIPIENTS,
+                    to_emails=final_recipients,
                     subject=email_subject,
                     html_body=html_body,
                     attachments=[pdf_path] if pdf_path else None
