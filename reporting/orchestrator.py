@@ -53,6 +53,34 @@ def format_date(date_value: datetime) -> str:
     return str(date_value)
 
 
+def _parse_dry_run_email_env() -> Optional[bool]:
+    """
+    Parse DRY_RUN_EMAIL environment variable.
+    
+    Returns:
+        True if DRY_RUN_EMAIL is set to "true", "1", or "yes" (case-insensitive)
+        False if DRY_RUN_EMAIL is set to "false", "0", or "no" (case-insensitive)
+        None if DRY_RUN_EMAIL is not set or has an invalid value
+    
+    Environment Variable:
+        DRY_RUN_EMAIL: Controls whether emails are sent (true/1/yes = dry run, false/0/no = send emails)
+    """
+    env_value = os.getenv('DRY_RUN_EMAIL')
+    if env_value is None:
+        return None
+    
+    env_value_lower = env_value.strip().lower()
+    
+    if env_value_lower in ('true', '1', 'yes'):
+        return True
+    elif env_value_lower in ('false', '0', 'no'):
+        return False
+    else:
+        # Invalid value - log warning and return None to use default
+        logger.warning(f"Invalid DRY_RUN_EMAIL value: '{env_value}'. Expected: true/1/yes or false/0/no. Using default behavior.")
+        return None
+
+
 def run_inventory_reporting_pipeline(
     excel_file_path: Optional[str] = None,
     report_date: Optional[datetime] = None,
@@ -72,6 +100,13 @@ def run_inventory_reporting_pipeline(
         excel_file_path: Path to inventory Excel file. If None, fetches latest file from S3.
         report_date: File upload date (NOT execution date). If None, uses current date.
         dry_run_email: If True, skip email sending (log only). If False, send email.
+                      Default: True. Can be overridden by DRY_RUN_EMAIL environment variable.
+    
+    Environment Variables:
+        DRY_RUN_EMAIL: Controls email sending (case-insensitive).
+                      Values: "true", "1", "yes" → dry_run_email=True
+                              "false", "0", "no" → dry_run_email=False
+                      If not set, uses dry_run_email parameter default (True).
     
     Returns:
         Tuple of (success: bool, result: Optional[str])
@@ -86,12 +121,17 @@ def run_inventory_reporting_pipeline(
         )
     """
     try:
+        # Override dry_run_email with environment variable if set
+        env_dry_run = _parse_dry_run_email_env()
+        if env_dry_run is not None:
+            dry_run_email = env_dry_run
+        
         # Log pipeline start with configuration
         logger.info("=" * 70)
         logger.info("Starting Inventory Reporting Pipeline")
         logger.info("=" * 70)
         logger.info(f"Report date: {format_date(report_date) if report_date else 'Not provided (will use current date)'}")
-        logger.info(f"Dry run email: {dry_run_email}")
+        logger.info(f"Dry run email mode: {'ENABLED' if dry_run_email else 'DISABLED'}")
         logger.info(f"Log file: {os.path.join(LOGS_DIR, LOG_FILENAME)}")
         logger.info("=" * 70)
         logger.info("")
