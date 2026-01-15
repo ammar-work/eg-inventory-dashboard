@@ -106,7 +106,8 @@ def run_inventory_reporting_pipeline(
         DRY_RUN_EMAIL: Controls email sending (case-insensitive).
                       Values: "true", "1", "yes" → dry_run_email=True
                               "false", "0", "no" → dry_run_email=False
-                      If not set, uses dry_run_email parameter default (True).
+                      SAFETY: If not set or invalid, dry_run_email is forced to True (emails NOT sent).
+                              Emails are sent ONLY when DRY_RUN_EMAIL is explicitly set to false/0/no.
     
     Returns:
         Tuple of (success: bool, result: Optional[str])
@@ -122,9 +123,18 @@ def run_inventory_reporting_pipeline(
     """
     try:
         # Override dry_run_email with environment variable if set
+        # SAFETY: If DRY_RUN_EMAIL is missing/invalid, enforce dry_run_email=True (safe-by-default)
         env_dry_run = _parse_dry_run_email_env()
         if env_dry_run is not None:
+            # Environment variable explicitly set - use it
             dry_run_email = env_dry_run
+        else:
+            # DRY_RUN_EMAIL not set or invalid - enforce safe-by-default behavior
+            original_dry_run = dry_run_email
+            dry_run_email = True
+            if not original_dry_run:
+                logger.warning("DRY_RUN_EMAIL not set or invalid. Enforcing dry-run mode for safety (emails will NOT be sent).")
+                logger.warning("To send emails, explicitly set DRY_RUN_EMAIL=false/0/no in environment variables.")
         
         # Log pipeline start with configuration
         logger.info("=" * 70)

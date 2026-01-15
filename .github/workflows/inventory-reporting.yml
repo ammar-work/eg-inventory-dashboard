@@ -49,6 +49,9 @@ jobs:
           # Email Configuration
           EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
           ERP_SYSTEM_LINK: ${{ secrets.ERP_SYSTEM_LINK }}
+          
+          # Dry Run Control (safe-by-default: emails NOT sent unless explicitly set to false)
+          DRY_RUN_EMAIL: ${{ secrets.DRY_RUN_EMAIL }}
         run: |
           python scripts/run_inventory_report.py
       
