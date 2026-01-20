@@ -133,17 +133,29 @@ def send_email(
             try:
                 logger.info(f"Sending email to {recipient} ({i+1}/{len(to_emails)})")
                 
-                # Create message
-                msg = MIMEMultipart('alternative')
-                msg['From'] = smtp_user
-                msg['To'] = recipient
-                msg['Subject'] = subject
-                
-                # Add HTML body
+                # Create RFC-compliant MIME structure:
+                # multipart/mixed (root)
+                # ├── multipart/alternative (body container)
+                # │   └── text/html
+                # └── application/pdf (attachment)
+
+                # Root container for entire message (supports attachments)
+                mixed_msg = MIMEMultipart('mixed')
+                mixed_msg['From'] = smtp_user
+                mixed_msg['To'] = recipient
+                mixed_msg['Subject'] = subject
+
+                # Inner container for body alternatives (currently only HTML)
+                alternative_part = MIMEMultipart('alternative')
+
+                # Add HTML body (unchanged content)
                 html_part = MIMEText(html_body, 'html')
-                msg.attach(html_part)
+                alternative_part.attach(html_part)
+
+                # Attach the body container to the root
+                mixed_msg.attach(alternative_part)
                 
-                # Add attachments if provided
+                # Add attachments if provided (attach to multipart/mixed root)
                 if attachments:
                     for attachment_path in attachments:
                         try:
@@ -155,12 +167,14 @@ def send_email(
                             
                             # Get filename from path
                             filename = os.path.basename(attachment_path)
+                            # Properly formatted Content-Disposition header
+                            # No leading spaces; filename safely quoted
                             attachment.add_header(
                                 'Content-Disposition',
-                                f'attachment; filename= {filename}'
+                                f'attachment; filename="{filename}"'
                             )
                             
-                            msg.attach(attachment)
+                            mixed_msg.attach(attachment)
                             logger.debug(f"Attached file: {filename}")
                         except Exception as e:
                             logger.warning(f"Failed to attach {attachment_path}: {str(e)}")
@@ -170,7 +184,7 @@ def send_email(
                 server = smtplib.SMTP(smtp_server, smtp_port)
                 server.starttls()  # Enable TLS encryption
                 server.login(smtp_user, smtp_password)
-                server.send_message(msg)
+                server.send_message(mixed_msg)
                 server.quit()
                 
                 success_count += 1
