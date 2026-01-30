@@ -9,6 +9,9 @@ token_generator.py
 # Streamlit secrets (contains sensitive information)
 .streamlit/secrets.toml
 
+# API testing file (local testing only)
+api_testing_file.py
+
 # Virtual environment
 .venv/
 

@@ -50,6 +50,12 @@ jobs:
           EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
           ERP_SYSTEM_LINK: ${{ secrets.ERP_SYSTEM_LINK }}
           
+          # ERP API Configuration (for dynamic email recipients)
+          USE_API_EMAIL_RECIPIENTS: ${{ secrets.USE_API_EMAIL_RECIPIENTS }}
+          ERP_GRAPHQL_ENDPOINT: ${{ secrets.ERP_GRAPHQL_ENDPOINT }}
+          ERP_API_TOKEN: ${{ secrets.ERP_API_TOKEN }}
+          ERP_API_TIMEOUT: ${{ secrets.ERP_API_TIMEOUT }}
+          
           # Dry Run Control (safe-by-default: emails NOT sent unless explicitly set to false)
           DRY_RUN_EMAIL: ${{ secrets.DRY_RUN_EMAIL }}
         run: |

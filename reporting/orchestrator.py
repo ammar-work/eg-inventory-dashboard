@@ -26,6 +26,7 @@ from reporting.config import (
     LOG_FILENAME,
     ERP_SYSTEM_LINK
 )
+from reporting.recipient_resolver import resolve_email_recipients
 from reporting.data_preprocessor import preprocess_inventory_data
 from reporting.priority_items_generator import generate_priority_items
 from reporting.heatmap_generator import generate_heatmap_dataframe, generate_heatmap_image
@@ -437,9 +438,12 @@ def run_inventory_reporting_pipeline(
         # Step 5: Send email (if not dry run)
         logger.info("STEP 5: Sending email...")
         
+        # Resolve email recipients (ERP API with fallback to static EMAIL_RECIPIENTS)
+        resolved_recipients = resolve_email_recipients()
+        
         if dry_run_email:
             logger.info("DRY RUN MODE: Email sending skipped (dry_run_email=True)")
-            logger.info(f"Would send email to {len(EMAIL_RECIPIENTS)} recipients")
+            logger.info(f"Would send email to {len(resolved_recipients)} recipients")
             email_subject = generate_email_subject(report_date)
             logger.info(f"Subject: {email_subject}")
             logger.info(f"Attachment: {pdf_path}")
@@ -459,7 +463,7 @@ def run_inventory_reporting_pipeline(
             except Exception as e:
                 logger.debug(f"Could not generate email body preview: {str(e)}")
         else:
-            logger.info(f"Sending email to {len(EMAIL_RECIPIENTS)} recipients")
+            logger.info(f"Sending email to {len(resolved_recipients)} recipients")
             
             # Generate email subject using new format
             email_subject = generate_email_subject(report_date)
@@ -496,7 +500,7 @@ def run_inventory_reporting_pipeline(
                 logger.warning("Using fallback HTML email body")
             
             # Email validation: Check recipient list and attachment
-            if not EMAIL_RECIPIENTS or len(EMAIL_RECIPIENTS) == 0:
+            if not resolved_recipients or len(resolved_recipients) == 0:
                 logger.warning("Email recipient list is empty. Skipping email send.")
                 logger.warning("Pipeline completed successfully but no email was sent.")
                 return True, pdf_path
@@ -508,7 +512,7 @@ def run_inventory_reporting_pipeline(
             
             try:
                 success, error = send_email(
-                    to_emails=EMAIL_RECIPIENTS,
+                    to_emails=resolved_recipients,
                     subject=email_subject,
                     html_body=html_body,
                     attachments=[pdf_path] if pdf_path else None

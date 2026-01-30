@@ -59,6 +59,11 @@ LOGGING:
 import sys
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (for local development/testing)
+# Note: In production/cron, environment variables should be set in system environment
+load_dotenv()
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent

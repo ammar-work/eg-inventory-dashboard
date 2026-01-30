@@ -23,6 +23,46 @@ _logger = logging.getLogger(__name__)
 # Values are split by comma, stripped of whitespace, and empty values are ignored
 _email_recipients_str = os.getenv("EMAIL_RECIPIENTS", "")
 
+# ============================================================================
+# ERP API Configuration (for dynamic email recipients)
+# ============================================================================
+
+# Feature flag to enable/disable ERP API email recipient fetching
+# If False or not set → use EMAIL_RECIPIENTS from config (default behavior)
+# If True → try ERP API, fallback to EMAIL_RECIPIENTS on failure
+# Expected format in .env: USE_API_EMAIL_RECIPIENTS=true
+_use_api_recipients_str = os.getenv("USE_API_EMAIL_RECIPIENTS", "").strip().lower()
+USE_API_EMAIL_RECIPIENTS = _use_api_recipients_str in ("true", "1", "yes")
+
+if USE_API_EMAIL_RECIPIENTS:
+    _logger.info("USE_API_EMAIL_RECIPIENTS is enabled. ERP API will be used to fetch email recipients.")
+else:
+    _logger.debug("USE_API_EMAIL_RECIPIENTS is disabled or not set. Using static EMAIL_RECIPIENTS.")
+
+# ERP GraphQL API endpoint URL
+# Expected format in .env: ERP_GRAPHQL_ENDPOINT=https://erp.company.com/graphql
+ERP_GRAPHQL_ENDPOINT = os.getenv("ERP_GRAPHQL_ENDPOINT", "")
+
+if USE_API_EMAIL_RECIPIENTS and not ERP_GRAPHQL_ENDPOINT:
+    _logger.warning(
+        "USE_API_EMAIL_RECIPIENTS is enabled but ERP_GRAPHQL_ENDPOINT is not set. "
+        "ERP API calls will fail and fallback to static EMAIL_RECIPIENTS."
+    )
+
+# ERP API request timeout in seconds
+# Expected format in .env: ERP_API_TIMEOUT=10
+_erp_timeout_str = os.getenv("ERP_API_TIMEOUT", "10")
+try:
+    ERP_API_TIMEOUT = int(_erp_timeout_str)
+except ValueError:
+    _logger.warning(f"Invalid ERP_API_TIMEOUT value '{_erp_timeout_str}'. Using default: 10 seconds.")
+    ERP_API_TIMEOUT = 10
+
+# ERP API static internal token for authentication
+# Expected format in .env: ERP_API_TOKEN=your-internal-token-here
+# This is optional - if not set, requests will be made without X-Internal-Token header
+ERP_API_TOKEN = os.getenv("ERP_API_TOKEN", "")
+
 if _email_recipients_str:
     # Split by comma, strip whitespace, filter out empty values
     EMAIL_RECIPIENTS = [
