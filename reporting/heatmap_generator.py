@@ -790,7 +790,7 @@ def generate_heatmap_dataframe(
         pivot = pd.concat([pivot, col_total.to_frame().T])
         
         # Format all numeric values to 2 decimals (same as dashboard)
-        pivot = pivot.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+        pivot = pivot.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
         
         # Step 6: Apply conditional formatting (same as dashboard)
         # Only color the numeric cells (not OD_Category)
@@ -819,7 +819,7 @@ def generate_heatmap_dataframe(
         styled = (
             pivot_highlighted.style
             .format("{:.2f}")
-            .applymap(
+            .map(
                 lambda v: highlight(v, minval, maxval, numeric_no_totals, metric),
                 subset=pd.IndexSlice[pivot_highlighted.index, pivot_highlighted.columns]
             )
