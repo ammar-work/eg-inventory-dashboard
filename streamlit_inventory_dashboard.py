@@ -2038,7 +2038,7 @@ if data_file is not None:
                 col_total.name = "Total"
                 pivot = pd.concat([pivot, col_total.to_frame().T])
                 # Format all numeric values to 2 decimals
-                pivot = pivot.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+                pivot = pivot.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
                 # Conditional formatting
                 def highlight(val, minval, maxval):
                     if pd.isna(val) or val == 0:
@@ -2120,7 +2120,7 @@ if data_file is not None:
                 styled = (
                     pivot_highlighted.style
                     .format("{:.2f}")
-                    .applymap(lambda v: highlight(v, minval, maxval), subset=pd.IndexSlice[pivot_highlighted.index, pivot_highlighted.columns])
+                    .map(lambda v: highlight(v, minval, maxval), subset=pd.IndexSlice[pivot_highlighted.index, pivot_highlighted.columns])
                 )
                 # Calculate height to show exactly up to the Total row (last row) - no extra space
                 num_rows = len(pivot_highlighted)
