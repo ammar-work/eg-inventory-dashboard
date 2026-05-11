@@ -12,6 +12,9 @@ token_generator.py
 # Virtual environment
 .venv/
 
+# API testing file (local testing only)
+api_testing_file.py
+
 # Automated Reports
 reports/
 logs/

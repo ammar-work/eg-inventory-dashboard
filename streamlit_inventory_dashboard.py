@@ -12,6 +12,7 @@ import time
 
 # Import comparison tab functionality
 from comparison_tab import render_comparison_tab, get_comparison_data_for_dashboard
+from incoming_ffs_filter import filter_incoming_for_ffs
 
 load_dotenv()  # this loads variables from .env into os.environ
 
@@ -1314,13 +1315,14 @@ if data_file is not None:
     elif size_chart_type == "Reserved":
         df = sheets.get("Reservations", pd.DataFrame())
     elif size_chart_type == "Free For Sale":
-        # Calculate Free For Sale = Stock - Reserved + Incoming
+        # Calculate Free For Sale = Stock - Reserved + Incoming (STOCK Incoming only)
         try:
             stock_df = sheets.get("Stock", pd.DataFrame())
             reserved_df = sheets.get("Reservations", pd.DataFrame())
-            incoming_df = sheets.get("Incoming", pd.DataFrame())
+            incoming_df_raw = sheets.get("Incoming", pd.DataFrame())
+            incoming_df = filter_incoming_for_ffs(incoming_df_raw)
             
-            if not stock_df.empty or not reserved_df.empty or not incoming_df.empty:
+            if not stock_df.empty or not reserved_df.empty or not incoming_df_raw.empty:
                 # Combine all data with type indicator
                 combined_data = []
             

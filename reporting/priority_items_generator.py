@@ -5,7 +5,9 @@ This module generates a list of top specifications by Total Free For Sale MT.
 The output is used to create the priority items table in the email body.
 
 Logic:
-- Calculates Free For Sale = Stock_MT + Incoming_MT - Reservation_MT
+- Calculates Free For Sale = Stock_MT + Incoming_MT - Reservation_MT; Incoming_MT
+  uses STOCK-filtered rows only (incoming_ffs_filter), aligned with dashboard
+  FFS and PDF heatmaps.
 - Aggregates at Specification level
 - Filters by threshold (>= 30 MT by default)
 - Sorts descending and returns top N specifications
@@ -16,6 +18,7 @@ This module is pure data processing - no UI, email, or PDF logic.
 import pandas as pd
 from typing import Tuple, Optional
 from reporting.config import PRIORITY_THRESHOLD_MT, PRIORITY_TOP_N
+from incoming_ffs_filter import filter_incoming_for_ffs
 from reporting.logger import get_logger
 
 logger = get_logger(__name__)
@@ -32,10 +35,12 @@ def generate_priority_items(
     Generate top specifications by Total Free For Sale MT.
     
     This function:
-    1. Calculates Free For Sale = Stock_MT + Incoming_MT - Reservation_MT
-    2. Aggregates at Specification level
-    3. Filters by threshold (default: >= 30 MT)
-    4. Sorts descending and returns top N (default: 15)
+    1. Builds Incoming_MT using filter_incoming_for_ffs; Stock and Reservations
+       unchanged.
+    2. Calculates Free For Sale = Stock_MT + Incoming_MT - Reservation_MT
+    3. Aggregates at Specification level
+    4. Filters by threshold (default: >= 30 MT)
+    5. Sorts descending and returns top N (default: 15)
     
     Args:
         stock_df: Preprocessed Stock DataFrame (must have 'Specification' and 'MT' columns)
@@ -61,11 +66,17 @@ def generate_priority_items(
             top_n = PRIORITY_TOP_N
         
         logger.info(f"Generating priority items: threshold={threshold_mt} MT, top_n={top_n}")
+
+        incoming_for_priority = filter_incoming_for_ffs(incoming_df)
         
         # Validate required columns
         required_columns = ['Specification', 'MT']
         
-        for df_name, df in [('Stock', stock_df), ('Reservations', reservations_df), ('Incoming', incoming_df)]:
+        for df_name, df in [
+            ('Stock', stock_df),
+            ('Reservations', reservations_df),
+            ('Incoming', incoming_df),
+        ]:
             if df.empty:
                 logger.warning(f"{df_name} DataFrame is empty - will use 0 MT for this source")
                 continue
@@ -101,9 +112,9 @@ def generate_priority_items(
             reservations_agg = pd.DataFrame(columns=['Specification', 'Reservation_MT'])
             logger.warning("Reservations DataFrame is empty - using 0 MT for all specifications")
         
-        # Incoming aggregation
-        if not incoming_df.empty:
-            incoming_agg = incoming_df.groupby('Specification')['MT'].sum().reset_index()
+        # Incoming aggregation (priority table: STOCK-filtered Incoming only)
+        if not incoming_for_priority.empty:
+            incoming_agg = incoming_for_priority.groupby('Specification')['MT'].sum().reset_index()
             incoming_agg.columns = ['Specification', 'Incoming_MT']
             # Ensure MT is numeric
             incoming_agg['Incoming_MT'] = pd.to_numeric(
@@ -111,7 +122,15 @@ def generate_priority_items(
             ).fillna(0)
         else:
             incoming_agg = pd.DataFrame(columns=['Specification', 'Incoming_MT'])
-            logger.warning("Incoming DataFrame is empty - using 0 MT for all specifications")
+            if incoming_df.empty:
+                logger.warning(
+                    "Incoming DataFrame is empty - using 0 MT for all specifications"
+                )
+            else:
+                logger.info(
+                    "Priority items: no STOCK-filtered Incoming rows; "
+                    "using 0 MT from Incoming for aggregation"
+                )
         
         # Step 2: Merge all aggregations
         logger.debug("Merging aggregated data from all sources")

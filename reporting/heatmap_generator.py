@@ -20,6 +20,7 @@ except ImportError:
     # If import fails, we'll need to copy the function
     calculate_free_for_sale = None
 
+from incoming_ffs_filter import filter_incoming_for_ffs
 from reporting.logger import get_logger
 
 logger = get_logger(__name__)
@@ -826,11 +827,12 @@ def generate_heatmap_dataframe(
         )
         
         # Step 7: Calculate summary metrics
-        # Calculate totals from original dataframes (filtered by specification)
-        # Filter original dataframes by specification
+        # Calculate totals from original dataframes (filtered by specification).
+        # Incoming uses STOCK rows only so metrics match FFS (calculate_free_for_sale).
+        incoming_for_ffs_metrics = filter_incoming_for_ffs(incoming_df)
         stock_filtered = stock_df[stock_df['Specification'].str.strip() == specification.strip()] if 'Specification' in stock_df.columns else pd.DataFrame()
         reservations_filtered = reservations_df[reservations_df['Specification'].str.strip() == specification.strip()] if 'Specification' in reservations_df.columns else pd.DataFrame()
-        incoming_filtered = incoming_df[incoming_df['Specification'].str.strip() == specification.strip()] if 'Specification' in incoming_df.columns else pd.DataFrame()
+        incoming_filtered = incoming_for_ffs_metrics[incoming_for_ffs_metrics['Specification'].str.strip() == specification.strip()] if 'Specification' in incoming_for_ffs_metrics.columns else pd.DataFrame()
         
         # Calculate totals
         stock_total = float(stock_filtered['MT'].sum()) if not stock_filtered.empty and 'MT' in stock_filtered.columns else 0.0
