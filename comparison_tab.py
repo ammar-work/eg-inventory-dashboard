@@ -17,6 +17,8 @@ from datetime import timezone, timedelta
 import boto3
 from dotenv import load_dotenv
 
+from incoming_ffs_filter import filter_incoming_for_ffs
+
 # Load environment variables
 load_dotenv()
 
@@ -585,7 +587,8 @@ def get_file_from_s3_by_key(file_key):
 def calculate_free_for_sale(stock_df, reservations_df, incoming_df):
     """
     Calculate Free for Sale from Stock, Reservations, and Incoming sheets.
-    Formula: Free for Sale = Stock - Reservations + Incoming
+    Formula: Free for Sale = Stock - Reservations + Incoming (Incoming counts only
+    STOCK-type CUSTOMER rows; see filter_incoming_for_ffs).
     Groups by Specification, OD, WT (matching product key logic).
     
     Args:
@@ -597,6 +600,10 @@ def calculate_free_for_sale(stock_df, reservations_df, incoming_df):
         DataFrame with Free for Sale values, grouped by Specification, OD, WT
     """
     try:
+        if incoming_df is None:
+            incoming_df = pd.DataFrame()
+        incoming_df = filter_incoming_for_ffs(incoming_df)
+
         # Combine all data with type indicator
         combined_data = []
         
