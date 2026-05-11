@@ -6,6 +6,9 @@ The output is used to create the priority items table in the email body.
 
 Logic:
 - Calculates Free For Sale = Stock_MT + Incoming_MT - Reservation_MT
+- For the priority table only, Incoming_MT counts rows aligned with the dashboard
+  Incoming tab "FOR STOCK" rule (CUSTOMER contains STOCK, case-insensitive); the
+  literal value NONSTOCK is excluded. On filter failure, full Incoming is used.
 - Aggregates at Specification level
 - Filters by threshold (>= 30 MT by default)
 - Sorts descending and returns top N specifications
@@ -21,6 +24,59 @@ from reporting.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _filter_incoming_for_priority_ffs(incoming_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Restrict Incoming rows used only for email priority-table FFS (not PDF/heatmap).
+
+    Aligns with dashboard Incoming "FOR STOCK": include rows where CUSTOMER contains
+    "STOCK" (case-insensitive), matching streamlit is_stock_customer logic. Rows whose
+    CUSTOMER is exactly NONSTOCK (case-insensitive) are excluded.
+
+    If CUSTOMER is missing or any error occurs, returns full Incoming (current behavior).
+    """
+    if incoming_df is None:
+        return pd.DataFrame()
+    if incoming_df.empty:
+        return incoming_df.copy()
+
+    try:
+        customer_col = None
+        for c in incoming_df.columns:
+            if str(c).strip().upper() == "CUSTOMER":
+                customer_col = c
+                break
+        if customer_col is None:
+            logger.info(
+                "Priority FFS: Incoming has no CUSTOMER column; using full Incoming"
+            )
+            return incoming_df.copy()
+
+        def is_stock_customer_for_priority(customer_value) -> bool:
+            if pd.isna(customer_value):
+                return False
+            normalized = str(customer_value).strip().upper()
+            if normalized == "NONSTOCK":
+                return False
+            return "STOCK" in normalized
+
+        mask = incoming_df[customer_col].map(is_stock_customer_for_priority).fillna(
+            False
+        )
+        filtered = incoming_df.loc[mask].copy()
+        logger.info(
+            "Priority FFS: Incoming STOCK filter kept %d / %d rows for aggregation",
+            len(filtered),
+            len(incoming_df),
+        )
+        return filtered
+    except Exception:
+        logger.warning(
+            "Priority FFS: Incoming STOCK filter failed; using full Incoming",
+            exc_info=True,
+        )
+        return incoming_df.copy()
+
+
 def generate_priority_items(
     stock_df: pd.DataFrame,
     reservations_df: pd.DataFrame,
@@ -32,10 +88,12 @@ def generate_priority_items(
     Generate top specifications by Total Free For Sale MT.
     
     This function:
-    1. Calculates Free For Sale = Stock_MT + Incoming_MT - Reservation_MT
-    2. Aggregates at Specification level
-    3. Filters by threshold (default: >= 30 MT)
-    4. Sorts descending and returns top N (default: 15)
+    1. Builds Incoming_MT for the priority table using FOR STOCK–aligned CUSTOMER
+       filtering (see module docstring); Stock and Reservations are unchanged.
+    2. Calculates Free For Sale = Stock_MT + Incoming_MT - Reservation_MT
+    3. Aggregates at Specification level
+    4. Filters by threshold (default: >= 30 MT)
+    5. Sorts descending and returns top N (default: 15)
     
     Args:
         stock_df: Preprocessed Stock DataFrame (must have 'Specification' and 'MT' columns)
@@ -61,11 +119,17 @@ def generate_priority_items(
             top_n = PRIORITY_TOP_N
         
         logger.info(f"Generating priority items: threshold={threshold_mt} MT, top_n={top_n}")
+
+        incoming_for_priority = _filter_incoming_for_priority_ffs(incoming_df)
         
         # Validate required columns
         required_columns = ['Specification', 'MT']
         
-        for df_name, df in [('Stock', stock_df), ('Reservations', reservations_df), ('Incoming', incoming_df)]:
+        for df_name, df in [
+            ('Stock', stock_df),
+            ('Reservations', reservations_df),
+            ('Incoming', incoming_df),
+        ]:
             if df.empty:
                 logger.warning(f"{df_name} DataFrame is empty - will use 0 MT for this source")
                 continue
@@ -101,9 +165,9 @@ def generate_priority_items(
             reservations_agg = pd.DataFrame(columns=['Specification', 'Reservation_MT'])
             logger.warning("Reservations DataFrame is empty - using 0 MT for all specifications")
         
-        # Incoming aggregation
-        if not incoming_df.empty:
-            incoming_agg = incoming_df.groupby('Specification')['MT'].sum().reset_index()
+        # Incoming aggregation (priority table: STOCK-filtered Incoming only)
+        if not incoming_for_priority.empty:
+            incoming_agg = incoming_for_priority.groupby('Specification')['MT'].sum().reset_index()
             incoming_agg.columns = ['Specification', 'Incoming_MT']
             # Ensure MT is numeric
             incoming_agg['Incoming_MT'] = pd.to_numeric(
@@ -111,7 +175,15 @@ def generate_priority_items(
             ).fillna(0)
         else:
             incoming_agg = pd.DataFrame(columns=['Specification', 'Incoming_MT'])
-            logger.warning("Incoming DataFrame is empty - using 0 MT for all specifications")
+            if incoming_df.empty:
+                logger.warning(
+                    "Incoming DataFrame is empty - using 0 MT for all specifications"
+                )
+            else:
+                logger.info(
+                    "Priority FFS: Incoming has no STOCK-filtered rows; "
+                    "using 0 MT from Incoming for priority aggregation"
+                )
         
         # Step 2: Merge all aggregations
         logger.debug("Merging aggregated data from all sources")
